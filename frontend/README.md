@@ -1,9 +1,11 @@
 # FairPass frontend
 
+For the three role walkthrough and a step-by-step setup guide in Chinese, see [界面说明与前端启动指南](../docs/UI_AND_FRONTEND_SETUP.md).
+
 Run from `frontend/`:
 
 ```sh
-npm install
+npm ci
 npm run dev
 ```
 

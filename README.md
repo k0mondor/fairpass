@@ -25,13 +25,14 @@ fairpass/
 
 ## 本地预览
 
-在 `frontend/` 运行 `npm install`、`npm run dev`，打开 Vite 输出的地址。未设置 `VITE_API_BASE_URL` 时为**明确标注的界面预览**，操作只改变本地演示状态，不会创建真实票或链上交易。运行 `npm run build` 检查前端。接入后端时复制 `frontend/.env.example` 为 `.env.local`，填写以 `/api/v1` 结尾的 API 地址并重启 Vite。详情见 [前端说明](frontend/README.md)。
+在 `frontend/` 运行 `npm ci`、`npm run dev`，打开 Vite 输出的地址。未设置 `VITE_API_BASE_URL` 时为**明确标注的界面预览**，操作只改变本地演示状态，不会创建真实票或链上交易。运行 `npm run build` 检查前端。接入后端时复制 `frontend/.env.example` 为 `.env.local`，填写以 `/api/v1` 结尾的 API 地址并重启 Vite。详细步骤见 [界面与启动指南](docs/UI_AND_FRONTEND_SETUP.md)。
 
 后端和区块链目录目前只有占位文件，不能进行真实三端联调。前端预览不是可入场票务系统。
 
 ## 开发契约与三人分工
 
 - [共同业务与链码契约](docs/SHARED_CONTRACT.md)
+- [三种身份的界面说明与前端启动指南](docs/UI_AND_FRONTEND_SETUP.md)
 - [HTTP API v1：逐接口字段、权限和错误](docs/API_V1.md)
 - [前端任务](docs/FRONTEND_TASK.md)
 - [后端任务](docs/BACKEND_TASK.md)
