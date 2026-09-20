@@ -8,4 +8,5 @@ build/
 *.sqlite
 *.sqlite3
 coverage/
+*.tsbuildinfo
 .DS_Store

@@ -1,0 +1,339 @@
+/* Card movement, paper surfaces and their cast shadows live on separate layers. */
+.motion-stage [hidden] {
+  display: none !important;
+}
+.collection-layout[data-view="stack"] {
+  min-height: calc(100svh - 62px);
+  display: grid;
+  grid-template-columns:
+    minmax(170px, 1fr) minmax(
+      280px,
+      min(36vw, calc((100svh - 235px) * 0.724), 488px)
+    )
+    minmax(170px, 1fr);
+  align-items: center;
+  gap: clamp(20px, 3vw, 60px);
+  max-width: 1420px;
+  margin: auto;
+  padding: 40px clamp(35px, 5vw, 80px) 100px;
+}
+.collection-layout[data-view="grid"] {
+  max-width: 980px;
+  margin: auto;
+  padding: 74px 40px 150px;
+}
+.ticket-collection {
+  display: grid;
+  width: 100%;
+}
+.ticket-collection[data-view="stack"] {
+  aspect-ratio: 0.724;
+}
+.ticket-collection[data-view="grid"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 72px 58px;
+}
+.ticket-collection[data-view="grid"] .deck-item {
+  max-width: 390px;
+  justify-self: center;
+}
+.deck-item {
+  position: relative;
+  min-width: 0;
+  width: 100%;
+  aspect-ratio: 0.724;
+  transform-origin: 0 0;
+}
+.ticket-collection[data-view="stack"] .deck-item {
+  grid-area: 1 / 1;
+}
+.deck-rest {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  perspective: var(--card-perspective, 880px);
+  transition: transform 580ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.motion-stage[data-layout-transition] .deck-rest {
+  transition: none;
+}
+.ticket-front .ticket-artwork {
+  /* One fixed face, analogous to the reference's card texture. Stack/grid
+     change its scale only; line breaks and spacing never depend on the view. */
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 440px;
+  height: calc(440px / 0.724);
+  transform-origin: 0 0;
+  transform: scale(var(--face-scale, 1));
+  pointer-events: none;
+}
+.ticket-front .ticket-artwork .ticket-front-content {
+  padding: 43px 43px 29px;
+}
+.ticket-front .ticket-artwork h2 {
+  font-size: 44px;
+  line-height: 1.035;
+  margin: 28px 0 0;
+}
+.ticket-front .ticket-artwork .ticket-label {
+  font-size: 14px;
+  padding: 9px 16px;
+}
+.ticket-front .ticket-artwork .art-container {
+  width: calc(100% + 44px);
+  margin: auto -22px 9px;
+}
+.ticket-front .ticket-artwork .ticket-front-date {
+  font-size: 14px;
+}
+.deck-card.ticket-front {
+  --paper-radius: 19px;
+  --paper-thickness: 3.5px;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  padding: 0;
+  margin: 0;
+  position: relative;
+  z-index: 1;
+  cursor: grab;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  border-radius: var(--paper-radius);
+  background: transparent;
+  overflow: visible;
+  box-shadow: none;
+  transform-style: preserve-3d;
+  animation: none;
+  transition: none;
+  will-change: auto;
+  backface-visibility: visible;
+}
+.paper-face,
+.paper-back {
+  position: absolute;
+  inset: 0;
+  background: var(--paper);
+  border-radius: inherit;
+  backface-visibility: hidden;
+  pointer-events: none;
+}
+.paper-face {
+  overflow: hidden;
+  transform: translateZ(0.01px);
+  box-shadow: inset 0 0 0 0.5px #fff9;
+}
+.paper-back {
+  transform: translateZ(calc(-1 * var(--paper-thickness))) rotateY(180deg);
+}
+.paper-wall {
+  position: absolute;
+  display: block;
+  height: var(--paper-thickness);
+  transform-origin: 0 0;
+  pointer-events: none;
+  backface-visibility: visible;
+}
+.paper-wall-top,
+.paper-wall-bottom {
+  left: var(--paper-radius);
+  width: calc(100% - 2 * var(--paper-radius));
+  transform: rotateX(-90deg);
+}
+.paper-wall-top {
+  top: 0;
+  background: #e9e3d7;
+}
+.paper-wall-bottom {
+  top: 100%;
+  background: #bbb3a3;
+}
+.paper-wall-left,
+.paper-wall-right {
+  top: var(--paper-radius);
+  width: var(--paper-thickness);
+  height: calc(100% - 2 * var(--paper-radius));
+  transform: rotateY(90deg);
+}
+.paper-wall-left {
+  left: 0;
+  background: #dcd5c7;
+}
+.paper-wall-right {
+  left: 100%;
+  background: #c2baaa;
+}
+.deck-card[data-dragging="true"] {
+  cursor: grabbing;
+  will-change: transform;
+}
+.ticket-collection[data-view="stack"] .deck-item:not([data-depth="0"]) {
+  pointer-events: none;
+}
+.ticket-collection[data-view="stack"]
+  .deck-item:not([data-depth="0"])
+  .ticket-cast-shadow {
+  opacity: 0.08;
+  filter: blur(7px);
+}
+.ticket-collection[data-view="grid"] .deck-card {
+  cursor: pointer;
+}
+.ticket-cast-shadow,
+.flight-shadow {
+  position: absolute;
+  inset: 0;
+  border-radius: 20px;
+  background: #08254c;
+  opacity: 0.27;
+  filter: blur(12px);
+  transform: translateY(16px);
+  pointer-events: none;
+}
+.ticket-light {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  /* A full-face wash with no translated boundary that can enter the card.
+     The reference lights a continuous surface; it has no white gloss stripe. */
+  background: linear-gradient(90deg, transparent, #092448);
+}
+.motion-stage .grid-ticket:hover {
+  transform: none !important;
+  box-shadow: none;
+}
+.motion-stage .motion-detail {
+  background: var(--paper);
+  overflow: hidden;
+  animation: none;
+  transform: none;
+  box-shadow:
+    0 1px 1px #d4cdbb,
+    0 22px 38px #06356c50;
+  min-height: 1170px;
+  border-radius: 19px;
+}
+.motion-stage .motion-detail .ticket-back-content {
+  box-shadow: none;
+  border-radius: 0;
+}
+.ticket-flight-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  pointer-events: none;
+  overflow: hidden;
+}
+.ticket-flight {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  perspective: var(--card-perspective, 880px);
+}
+.flight-body {
+  --paper-radius: 19px;
+  --paper-thickness: 3.5px;
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  transform-origin: 50% 50%;
+}
+.flight-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 19px;
+  background: var(--paper);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  overflow: hidden;
+}
+.flight-front.ticket-front {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  aspect-ratio: auto;
+  box-shadow: none;
+  transform: translateZ(0.01px);
+  will-change: auto;
+  animation: none;
+  transition: none;
+}
+.flight-back {
+  transform: rotateY(180deg) translateZ(var(--paper-thickness));
+  color: var(--ink);
+}
+.flight-back > div {
+  transform-origin: 0 0;
+}
+.flight-back .ticket-back-content {
+  box-shadow: none;
+  background: var(--paper);
+}
+.flight-light {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, #123257, transparent 75%);
+  pointer-events: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .motion-stage:not([data-layout-transition])
+    .ticket-collection[data-view="grid"]
+    .deck-rest:hover {
+    transform: translateY(-5px) rotateX(2deg) !important;
+  }
+}
+@media (max-width: 980px) {
+  .collection-layout[data-view="stack"] {
+    grid-template-columns:
+      minmax(100px, 1fr) minmax(
+        280px,
+        min(43vw, calc((100svh - 235px) * 0.724), 440px)
+      )
+      minmax(100px, 1fr);
+    gap: 22px;
+  }
+}
+@media (max-width: 690px) {
+  .collection-layout[data-view="stack"] {
+    min-height: calc(100svh - 94px);
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto;
+    gap: 20px 16px;
+    padding: 40px 20px 100px;
+    align-content: center;
+  }
+  .ticket-collection[data-view="stack"] {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    width: min(75vw, calc((100svh - 245px) * 0.724), 350px);
+    justify-self: center;
+  }
+  .collection-layout[data-view="grid"] {
+    padding: 37px 21px 120px;
+  }
+  .ticket-collection[data-view="grid"] {
+    gap: 27px 18px;
+  }
+  .ticket-collection[data-view="grid"] .deck-card {
+    --paper-radius: 11px;
+    --paper-thickness: 1.7px;
+  }
+  .deck-card.ticket-front,
+  .flight-body {
+    --paper-thickness: 2.9px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .deck-rest {
+    transition: none;
+  }
+  .ticket-collection[data-view="grid"] .deck-rest:hover {
+    transform: none !important;
+  }
+}
