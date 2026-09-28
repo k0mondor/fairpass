@@ -5,8 +5,11 @@ build/
 .env.*
 !.env.example
 *.db
+*.db-*
 *.sqlite
+*.sqlite-*
 *.sqlite3
+*.sqlite3-*
 coverage/
 *.tsbuildinfo
 .DS_Store
