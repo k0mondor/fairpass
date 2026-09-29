@@ -6,12 +6,14 @@ import { loadFabricConfig } from "./config/fabric.js";
 import { openDatabase } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { EventRepository } from "./db/repositories/event-repository.js";
+import { IdempotencyRepository } from "./db/repositories/idempotency-repository.js";
 import { RegistrationRepository } from "./db/repositories/registration-repository.js";
 import { UserRepository } from "./db/repositories/user-repository.js";
 import { createGatewayAdapter } from "./fabric/create-gateway-adapter.js";
 import { createApiRouter } from "./routes/index.js";
 import { AuthService } from "./services/auth-service.js";
 import { DemoTokenService } from "./services/demo-token-service.js";
+import { EventCreationService } from "./services/event-creation-service.js";
 import { EventService } from "./services/event-service.js";
 import { GatewayLedgerReadService } from "./services/ledger-read-service.js";
 import { RegistrationService } from "./services/registration-service.js";
@@ -24,6 +26,7 @@ runMigrations(database);
 
 const users = new UserRepository(database);
 const eventRepository = new EventRepository(database);
+const idempotencyRepository = new IdempotencyRepository(database);
 const registrationRepository = new RegistrationRepository(database);
 const tokens = new DemoTokenService(loadAuthConfig());
 const auth = new AuthService(users, tokens);
@@ -31,13 +34,20 @@ const fabricConfig = loadFabricConfig();
 const gateway = createGatewayAdapter(fabricConfig);
 const ledger = new GatewayLedgerReadService(gateway);
 const events = new EventService(eventRepository, registrationRepository, ledger);
+const eventCreation = new EventCreationService(
+  database,
+  eventRepository,
+  idempotencyRepository,
+  gateway,
+  events,
+);
 const registrations = new RegistrationService(
   database,
   registrationRepository,
   events,
 );
 const app = createApp({
-  apiRouter: createApiRouter({ auth, events, registrations }),
+  apiRouter: createApiRouter({ auth, eventCreation, events, registrations }),
 });
 
 if (gateway.mode === "mock") {

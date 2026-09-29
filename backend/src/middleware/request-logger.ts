@@ -36,7 +36,11 @@ export const requestLogger = (sink: LogSink = consoleLogSink): RequestHandler =>
       };
 
       const actorId = request.actor?.id;
-      const eventId = resourceIdFromPath(request.path, "events");
+      const eventIdFromPath = resourceIdFromPath(request.path, "events");
+      const eventId =
+        typeof response.locals.eventId === "string"
+          ? response.locals.eventId
+          : eventIdFromPath;
       const ticketId = resourceIdFromPath(request.path, "tickets");
       const txId = response.locals.txId;
       const errorCode = response.locals.errorCode;

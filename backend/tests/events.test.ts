@@ -7,12 +7,15 @@ import type { AuthConfig } from "../src/config/auth.js";
 import { openDatabase, type DatabaseConnection } from "../src/db/client.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { EventRepository } from "../src/db/repositories/event-repository.js";
+import { IdempotencyRepository } from "../src/db/repositories/idempotency-repository.js";
 import { RegistrationRepository } from "../src/db/repositories/registration-repository.js";
 import { UserRepository } from "../src/db/repositories/user-repository.js";
 import { seedDemoUsers } from "../src/db/seed.js";
+import { MockGatewayAdapter } from "../src/fabric/mock-gateway-adapter.js";
 import { createApiRouter } from "../src/routes/index.js";
 import { AuthService } from "../src/services/auth-service.js";
 import { DemoTokenService } from "../src/services/demo-token-service.js";
+import { EventCreationService } from "../src/services/event-creation-service.js";
 import { EventService } from "../src/services/event-service.js";
 import {
   type LedgerReadService,
@@ -101,6 +104,7 @@ const createContext = (
 
   const users = new UserRepository(database);
   const eventRepository = new EventRepository(database);
+  const idempotencyRepository = new IdempotencyRepository(database);
   const registrationRepository = new RegistrationRepository(database);
   const auth = new AuthService(
     users,
@@ -112,6 +116,19 @@ const createContext = (
     ledger,
     () => new Date(now),
   );
+  const gateway = new MockGatewayAdapter({
+    channelName: "test-channel",
+    chaincodeName: "fairpass",
+    clock: () => new Date(now),
+  });
+  const eventCreation = new EventCreationService(
+    database,
+    eventRepository,
+    idempotencyRepository,
+    gateway,
+    events,
+    () => new Date(now),
+  );
   const registrationService = new RegistrationService(
     database,
     registrationRepository,
@@ -120,6 +137,7 @@ const createContext = (
   );
   const apiRouter = createApiRouter({
     auth,
+    eventCreation,
     events,
     registrations: registrationService,
   });

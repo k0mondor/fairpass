@@ -1,6 +1,7 @@
 import { Router } from "express";
 
 import type { AuthService } from "../services/auth-service.js";
+import type { EventCreationService } from "../services/event-creation-service.js";
 import type { EventService } from "../services/event-service.js";
 import type { RegistrationService } from "../services/registration-service.js";
 import { createAuthRouter } from "./auth.js";
@@ -9,6 +10,7 @@ import { createMeRouter } from "./me.js";
 
 export interface ApiRouterDependencies {
   auth: AuthService;
+  eventCreation: EventCreationService;
   events: EventService;
   registrations: RegistrationService;
 }

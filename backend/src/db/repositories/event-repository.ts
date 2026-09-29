@@ -19,6 +19,19 @@ export interface EventRecord {
   createdAt: string;
 }
 
+export interface NewEventRecord {
+  id: string;
+  organizerId: string;
+  title: string;
+  description: string;
+  location: string;
+  capacity: number;
+  registrationDeadline: string;
+  startAt: string;
+  endAt: string;
+  createdAt: string;
+}
+
 interface EventRow {
   id: string;
   organizer_id: string;
@@ -93,6 +106,22 @@ const toRecord = (row: EventRow): EventRecord => ({
 
 export class EventRepository {
   constructor(private readonly database: DatabaseConnection) {}
+
+  insert(record: NewEventRecord): void {
+    this.database
+      .prepare(
+        `INSERT INTO events (
+          id, organizer_id, title, description, location, capacity,
+          registration_deadline, start_at, end_at, status, created_at,
+          draw_winners_hash, draw_tx_id
+        ) VALUES (
+          @id, @organizerId, @title, @description, @location, @capacity,
+          @registrationDeadline, @startAt, @endAt, 'OPEN', @createdAt,
+          NULL, NULL
+        )`,
+      )
+      .run(record);
+  }
 
   list(input: EventListInput): EventRecordPage {
     const conditions: string[] = [];
