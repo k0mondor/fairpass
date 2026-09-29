@@ -2,7 +2,7 @@
 
 FairPass 的 TypeScript + Express 后端。HTTP API 基础路径为 `/api/v1`，业务契约见仓库 `docs/API_V1.md` 与 `docs/SHARED_CONTRACT.md`。
 
-当前完成项目初始化、统一 HTTP 基础设施、SQLite 初始迁移、演示账号 Seed、请求校验和 Demo token 认证；业务路由及 Fabric Gateway 将按 `docs/BACKEND_TASK.md` 继续实现。
+当前完成项目初始化、统一 HTTP 基础设施、SQLite 初始迁移、演示账号 Seed、请求校验、Demo token 认证，以及活动查询和报名；Fabric Gateway 与链上写入将按 `docs/BACKEND_TASK.md` 继续实现。
 
 ## 环境要求
 
@@ -71,6 +71,24 @@ token 使用 `DEMO_TOKEN_SECRET` 进行 HS256 签名，并校验 issuer、audien
 ## 请求校验
 
 共享校验模块覆盖 UUID、64 位小写十六进制票 ID、角色与状态枚举、带时区 ISO 时间、分页、活动创建、空请求体、转让目标和幂等 key。已知参数非法或请求形状错误统一返回 `400 VALIDATION_ERROR`；分页默认 `page=1&pageSize=20`，`pageSize` 最大为 100。
+
+## 活动与报名接口
+
+当前提供以下需要 Bearer token 的接口：
+
+| 方法与路径 | 权限 | 说明 |
+|---|---|---|
+| `GET /api/v1/events` | 已登录 | 全部活动，支持 `page`、`pageSize`、`status` |
+| `GET /api/v1/me/events` | 主办方 | 只分页当前主办方的活动，`total` 也只统计本人 |
+| `GET /api/v1/events/:eventId` | 已登录 | 活动详情；学生附加 `myRegistration` 和 `myTicket` |
+| `POST /api/v1/events/:eventId/registrations` | 学生 | OPEN 且截止前报名，请求体为 `{}` |
+| `GET /api/v1/me/registrations` | 学生 | 本人报名列表，每项附完整活动 |
+
+活动列表按 `createdAt DESC, id DESC` 稳定排序。到达 `endAt` 后，读取时状态自动呈现为 `FINISHED`，筛选和分页 total 使用相同的有效状态。
+
+报名写入使用 SQLite `BEGIN IMMEDIATE` 事务，并由 `(event_id,user_id)` 唯一约束兜底。重复报名返回 `ALREADY_REGISTERED`，单活动达到 1000 人返回 `SOLD_OUT`，截止时刻及之后或非 OPEN 状态返回 `REGISTRATION_CLOSED`。报名只写 SQLite，不生成链上 Operation。
+
+链上抽签尚未发布的活动，其 `winnerCount`、`issuedCount`、`redeemedCount` 为 0 且 `myTicket` 为 null。如果活动已经有确认的抽签哈希，但 Gateway 读接口尚未接入，接口返回 `503 FABRIC_UNAVAILABLE`，不会用本地零值伪装链上状态。D 阶段的 Mock/真实 Gateway 将实现现有 `LedgerReadService` 接口。
 
 ## 目录
 

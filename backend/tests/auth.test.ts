@@ -9,7 +9,7 @@ import { runMigrations } from "../src/db/migrate.js";
 import { UserRepository } from "../src/db/repositories/user-repository.js";
 import { seedDemoUsers } from "../src/db/seed.js";
 import { requireAuth, requireRole } from "../src/middleware/auth.js";
-import { createApiRouter } from "../src/routes/index.js";
+import { createAuthRouter } from "../src/routes/auth.js";
 import { AuthService } from "../src/services/auth-service.js";
 import { DemoTokenService } from "../src/services/demo-token-service.js";
 import { sendData } from "../src/utils/http-response.js";
@@ -44,12 +44,15 @@ describe("demo authentication", () => {
 
   afterEach(() => database.close());
 
-  const createAuthApp = () =>
-    createApp({
+  const createAuthApp = () => {
+    const router = Router();
+    router.use("/auth", createAuthRouter(auth));
+    return createApp({
       config: httpConfig,
-      apiRouter: createApiRouter({ auth }),
+      apiRouter: router,
       logSink: silentLog,
     });
+  };
 
   const login = async (account: string) => {
     const response = await request(createAuthApp())

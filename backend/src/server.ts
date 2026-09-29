@@ -4,10 +4,15 @@ import { createApp } from "./app.js";
 import { loadAuthConfig } from "./config/auth.js";
 import { openDatabase } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
+import { EventRepository } from "./db/repositories/event-repository.js";
+import { RegistrationRepository } from "./db/repositories/registration-repository.js";
 import { UserRepository } from "./db/repositories/user-repository.js";
 import { createApiRouter } from "./routes/index.js";
 import { AuthService } from "./services/auth-service.js";
 import { DemoTokenService } from "./services/demo-token-service.js";
+import { EventService } from "./services/event-service.js";
+import { UnavailableLedgerReadService } from "./services/ledger-read-service.js";
+import { RegistrationService } from "./services/registration-service.js";
 
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
 const database = openDatabase(
@@ -16,9 +21,20 @@ const database = openDatabase(
 runMigrations(database);
 
 const users = new UserRepository(database);
+const eventRepository = new EventRepository(database);
+const registrationRepository = new RegistrationRepository(database);
 const tokens = new DemoTokenService(loadAuthConfig());
 const auth = new AuthService(users, tokens);
-const app = createApp({ apiRouter: createApiRouter({ auth }) });
+const ledger = new UnavailableLedgerReadService();
+const events = new EventService(eventRepository, registrationRepository, ledger);
+const registrations = new RegistrationService(
+  database,
+  registrationRepository,
+  events,
+);
+const app = createApp({
+  apiRouter: createApiRouter({ auth, events, registrations }),
+});
 
 const server = app.listen(port, "127.0.0.1", () => {
   console.log(`FairPass backend listening on http://127.0.0.1:${port}`);
