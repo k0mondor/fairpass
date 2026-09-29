@@ -2,7 +2,7 @@
 
 FairPass 的 TypeScript + Express 后端。HTTP API 基础路径为 `/api/v1`，业务契约见仓库 `docs/API_V1.md` 与 `docs/SHARED_CONTRACT.md`。
 
-当前完成项目初始化、统一 HTTP 基础设施、SQLite 初始迁移、演示账号 Seed、请求校验、Demo token 认证，以及活动查询和报名；Fabric Gateway 与链上写入将按 `docs/BACKEND_TASK.md` 继续实现。
+当前完成项目初始化、统一 HTTP 基础设施、SQLite 初始迁移、演示账号 Seed、请求校验、Demo token 认证、活动查询和报名，以及统一 Fabric Gateway Adapter 与内存 Mock；HTTP 链上写入流程将按 `docs/BACKEND_TASK.md` 继续实现。
 
 ## 环境要求
 
@@ -88,13 +88,28 @@ token 使用 `DEMO_TOKEN_SECRET` 进行 HS256 签名，并校验 issuer、audien
 
 报名写入使用 SQLite `BEGIN IMMEDIATE` 事务，并由 `(event_id,user_id)` 唯一约束兜底。重复报名返回 `ALREADY_REGISTERED`，单活动达到 1000 人返回 `SOLD_OUT`，截止时刻及之后或非 OPEN 状态返回 `REGISTRATION_CLOSED`。报名只写 SQLite，不生成链上 Operation。
 
-链上抽签尚未发布的活动，其 `winnerCount`、`issuedCount`、`redeemedCount` 为 0 且 `myTicket` 为 null。如果活动已经有确认的抽签哈希，但 Gateway 读接口尚未接入，接口返回 `503 FABRIC_UNAVAILABLE`，不会用本地零值伪装链上状态。D 阶段的 Mock/真实 Gateway 将实现现有 `LedgerReadService` 接口。
+链上抽签尚未发布的活动，其 `winnerCount`、`issuedCount`、`redeemedCount` 为 0 且 `myTicket` 为 null。已确认抽签的活动通过统一 Gateway 读取链上计数和当前 owner；Gateway 不可用、链上记录缺失或提交结果仍不确定时返回 `503 FABRIC_UNAVAILABLE`，不会用本地零值或未确认投影伪装链上状态。
+
+## Fabric Gateway Adapter
+
+业务服务只依赖 `GatewayAdapter` 的 `evaluate(method,args)` 与 `submitAndConfirm(method,args)`，不直接依赖 Fabric SDK。提交成功结果包含业务 JSON、txId、确认状态、可用时的区块号，以及本次交易对应的 Operation。内部错误区分业务拒绝、网络、超时、背书、commit 失败和 commit 未知；链码 `CODE:message` 会映射到 API v1 稳定错误码，未知原文不会返回浏览器。
+
+开发环境默认使用 `FABRIC_GATEWAY_MODE=mock`。Mock 实现活动、抽签资格、票、owner 索引和 Operation，支持以下交易与查询：
+
+- `CreateEvent`、`PublishDraw`、`ClaimTicket`、`TransferTicket`、`RedeemTicket`
+- `GetEvent`、`GetTicket`、`GetTicketsByOwner`、`GetOperationsByEvent`、`GetOperationsByTicket`
+
+Mock 交易 ID 始终以 `mock-` 开头，`blockNumber` 始终为 `null`，服务启动时也会打印模拟模式警告。Mock 状态只保存在当前进程内，重启后清空；它用于服务和页面开发，不能作为真实上链验收证据。
+
+测试可通过 `MockGatewayAdapter.queueFault(method, fault)` 注入网络、超时、背书、commit、业务冲突和 `COMMIT_UNKNOWN`。除 `COMMIT_UNKNOWN` 外，故障在状态写入前发生；`COMMIT_UNKNOWN` 会先应用状态再抛错，用于验证调用方通过查询对账，不能据异常直接判定交易失败。
+
+设置 `FABRIC_GATEWAY_MODE=real` 时，路由和业务服务无需修改，但当前 real adapter 会安全返回 `503 FABRIC_UNAVAILABLE`。真实 Fabric SDK、证书加载与 peer 连接将在链码可用后接入；在此之前不能用 `real` 模式宣称联通成功。
 
 ## 目录
 
 ```text
 src/
-├── config/      # HTTP 与认证环境配置解析
+├── config/      # HTTP、认证与 Fabric 环境配置解析
 ├── db/          # SQLite 连接、迁移和后续仓储
 ├── errors/      # 稳定 API 错误码与状态映射
 ├── fabric/      # Mock/真实 Fabric Gateway adapter
@@ -127,4 +142,4 @@ src/
 
 复制 `.env.example` 为本地 `.env` 后再填写实际配置。不得提交 token secret、Fabric 私钥、客户端证书、真实数据库或本机环境文件。
 
-`FABRIC_GATEWAY_MODE=mock` 只用于前期页面和服务联调；最终验收必须切换到真实 Fabric Gateway，模拟交易不能标记为真实上链。
+`FABRIC_GATEWAY_MODE` 仅接受 `mock` 或 `real`。`mock` 只用于前期页面和服务联调；最终验收必须切换到真实 Fabric Gateway，模拟交易不能标记为真实上链。channel、chaincode、MSP、peer endpoint、TLS 根证书、客户端证书与私钥路径均从环境变量读取，任何凭据都不得提交到仓库。

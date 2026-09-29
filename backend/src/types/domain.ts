@@ -66,6 +66,21 @@ export interface Ticket {
   redeemedAt: string | null;
 }
 
+export interface Operation {
+  id: string;
+  eventId: string;
+  ticketId: string | null;
+  type: OperationType;
+  actorId: string;
+  fromUserId: string | null;
+  toUserId: string | null;
+  occurredAt: string;
+  txId: string;
+  channelName: string;
+  chaincodeName: string;
+  blockNumber: number | null;
+}
+
 export interface EventDetail extends Event {
   myRegistration: Registration | null;
   myTicket: Ticket | null;

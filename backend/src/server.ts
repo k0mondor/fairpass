@@ -2,16 +2,18 @@ import "dotenv/config";
 
 import { createApp } from "./app.js";
 import { loadAuthConfig } from "./config/auth.js";
+import { loadFabricConfig } from "./config/fabric.js";
 import { openDatabase } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { EventRepository } from "./db/repositories/event-repository.js";
 import { RegistrationRepository } from "./db/repositories/registration-repository.js";
 import { UserRepository } from "./db/repositories/user-repository.js";
+import { createGatewayAdapter } from "./fabric/create-gateway-adapter.js";
 import { createApiRouter } from "./routes/index.js";
 import { AuthService } from "./services/auth-service.js";
 import { DemoTokenService } from "./services/demo-token-service.js";
 import { EventService } from "./services/event-service.js";
-import { UnavailableLedgerReadService } from "./services/ledger-read-service.js";
+import { GatewayLedgerReadService } from "./services/ledger-read-service.js";
 import { RegistrationService } from "./services/registration-service.js";
 
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
@@ -25,7 +27,9 @@ const eventRepository = new EventRepository(database);
 const registrationRepository = new RegistrationRepository(database);
 const tokens = new DemoTokenService(loadAuthConfig());
 const auth = new AuthService(users, tokens);
-const ledger = new UnavailableLedgerReadService();
+const fabricConfig = loadFabricConfig();
+const gateway = createGatewayAdapter(fabricConfig);
+const ledger = new GatewayLedgerReadService(gateway);
 const events = new EventService(eventRepository, registrationRepository, ledger);
 const registrations = new RegistrationService(
   database,
@@ -35,6 +39,12 @@ const registrations = new RegistrationService(
 const app = createApp({
   apiRouter: createApiRouter({ auth, events, registrations }),
 });
+
+if (gateway.mode === "mock") {
+  console.warn(
+    "Fabric Gateway mode is mock: transactions are simulated, use mock-* txIds, and are not on-chain.",
+  );
+}
 
 const server = app.listen(port, "127.0.0.1", () => {
   console.log(`FairPass backend listening on http://127.0.0.1:${port}`);
