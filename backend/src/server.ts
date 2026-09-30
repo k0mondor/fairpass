@@ -19,6 +19,7 @@ import { EventCreationService } from "./services/event-creation-service.js";
 import { EventService } from "./services/event-service.js";
 import { GatewayLedgerReadService } from "./services/ledger-read-service.js";
 import { RegistrationService } from "./services/registration-service.js";
+import { TicketService } from "./services/ticket-service.js";
 
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
 const database = openDatabase(
@@ -55,6 +56,12 @@ const draws = new DrawService(
   drawRepository,
   gateway,
 );
+const tickets = new TicketService(
+  drawRepository,
+  users,
+  gateway,
+  events,
+);
 const app = createApp({
   apiRouter: createApiRouter({
     auth,
@@ -62,6 +69,7 @@ const app = createApp({
     eventCreation,
     events,
     registrations,
+    tickets,
   }),
 });
 

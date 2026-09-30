@@ -66,6 +66,10 @@ export interface Ticket {
   redeemedAt: string | null;
 }
 
+export interface TicketWithEvent extends Ticket {
+  event: Event;
+}
+
 export interface Operation {
   id: string;
   eventId: string;

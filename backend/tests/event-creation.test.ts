@@ -25,6 +25,7 @@ import {
 import { EventService } from "../src/services/event-service.js";
 import { GatewayLedgerReadService } from "../src/services/ledger-read-service.js";
 import { RegistrationService } from "../src/services/registration-service.js";
+import { TicketService } from "../src/services/ticket-service.js";
 
 const now = new Date("2026-09-29T00:00:00.000Z");
 const organizerId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -133,12 +134,20 @@ const createContext = (): TestContext => {
     () => new Date(now),
     () => 0,
   );
+  const tickets = new TicketService(
+    drawRepository,
+    users,
+    gateway,
+    events,
+    () => new Date(now),
+  );
   const apiRouter = createApiRouter({
     auth,
     draws,
     eventCreation,
     events,
     registrations,
+    tickets,
   });
 
   return {

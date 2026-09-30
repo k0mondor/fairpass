@@ -6,6 +6,7 @@ import type { DrawService } from "../services/draw-service.js";
 import type { EventCreationService } from "../services/event-creation-service.js";
 import type { EventService } from "../services/event-service.js";
 import type { RegistrationService } from "../services/registration-service.js";
+import type { TicketService } from "../services/ticket-service.js";
 import { sendData, sendPage } from "../utils/http-response.js";
 import { parseInput } from "../validation/parse.js";
 import {
@@ -22,6 +23,7 @@ export interface EventRouterDependencies {
   eventCreation: EventCreationService;
   events: EventService;
   registrations: RegistrationService;
+  tickets: TicketService;
 }
 
 export const createEventRouter = ({
@@ -30,6 +32,7 @@ export const createEventRouter = ({
   eventCreation,
   events,
   registrations,
+  tickets,
 }: EventRouterDependencies): Router => {
   const router = Router();
   router.use(requireAuth(auth));
@@ -64,6 +67,20 @@ export const createEventRouter = ({
       parseInput(emptyBodySchema, request.body);
       const registration = registrations.register(eventId, request.actor!.id);
       sendData(response, registration, 201);
+    },
+  );
+
+  router.post(
+    "/:eventId/tickets/claim",
+    requireRole("STUDENT"),
+    async (request, response) => {
+      const { eventId } = parseInput(eventIdParamsSchema, request.params);
+      parseInput(emptyBodySchema, request.body);
+      const result = await tickets.claim(eventId, request.actor!.id);
+      response.locals.eventId = eventId;
+      response.locals.ticketId = result.ticket.id;
+      if (result.txId) response.locals.txId = result.txId;
+      sendData(response, result.ticket, 201);
     },
   );
 

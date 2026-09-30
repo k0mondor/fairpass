@@ -80,6 +80,20 @@ export class DrawRepository {
     return rows.map(({ user_id }) => user_id);
   }
 
+  isConfirmedWinner(eventId: string, userId: string): boolean {
+    const row = this.database
+      .prepare(
+        `SELECT EXISTS(
+          SELECT 1
+          FROM draw_winners w
+          JOIN draw_attempts a ON a.event_id = w.event_id
+          WHERE w.event_id = ? AND w.user_id = ? AND a.state = 'CONFIRMED'
+        ) AS is_winner`,
+      )
+      .get(eventId, userId) as { is_winner: 0 | 1 };
+    return row.is_winner === 1;
+  }
+
   setEventDrawing(eventId: string): boolean {
     const result = this.database
       .prepare(

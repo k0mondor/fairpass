@@ -25,6 +25,7 @@ import {
   UnavailableLedgerReadService,
 } from "../src/services/ledger-read-service.js";
 import { RegistrationService } from "../src/services/registration-service.js";
+import { TicketService } from "../src/services/ticket-service.js";
 import type { EventStatus, Ticket } from "../src/types/domain.js";
 
 const now = new Date("2026-09-29T00:00:00.000Z");
@@ -146,12 +147,20 @@ const createContext = (
     () => new Date(now),
     () => 0,
   );
+  const tickets = new TicketService(
+    drawRepository,
+    users,
+    gateway,
+    events,
+    () => new Date(now),
+  );
   const apiRouter = createApiRouter({
     auth,
     draws,
     eventCreation,
     events,
     registrations: registrationService,
+    tickets,
   });
 
   return {

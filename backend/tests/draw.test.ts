@@ -29,6 +29,7 @@ import { EventCreationService } from "../src/services/event-creation-service.js"
 import { EventService } from "../src/services/event-service.js";
 import { GatewayLedgerReadService } from "../src/services/ledger-read-service.js";
 import { RegistrationService } from "../src/services/registration-service.js";
+import { TicketService } from "../src/services/ticket-service.js";
 
 const eventId = "60000000-0000-4000-8000-000000000001";
 const organizerId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -175,12 +176,20 @@ const createContext = async (
     () => new Date(clock.now),
     options.randomIndex ?? (() => 0),
   );
+  const tickets = new TicketService(
+    draws,
+    users,
+    gateway,
+    events,
+    () => new Date(clock.now),
+  );
   const apiRouter = createApiRouter({
     auth,
     draws: drawService,
     eventCreation,
     events,
     registrations: registrationService,
+    tickets,
   });
 
   return {

@@ -4,6 +4,7 @@ import { requireAuth, requireRole } from "../middleware/auth.js";
 import type { AuthService } from "../services/auth-service.js";
 import type { EventService } from "../services/event-service.js";
 import type { RegistrationService } from "../services/registration-service.js";
+import type { TicketService } from "../services/ticket-service.js";
 import { sendPage } from "../utils/http-response.js";
 import { parseInput } from "../validation/parse.js";
 import {
@@ -15,12 +16,14 @@ export interface MeRouterDependencies {
   auth: AuthService;
   events: EventService;
   registrations: RegistrationService;
+  tickets: TicketService;
 }
 
 export const createMeRouter = ({
   auth,
   events,
   registrations,
+  tickets,
 }: MeRouterDependencies): Router => {
   const router = Router();
   router.use(requireAuth(auth));
@@ -37,6 +40,20 @@ export const createMeRouter = ({
     async (request, response) => {
       const query = parseInput(paginationQuerySchema, request.query);
       const result = await registrations.listForStudent(
+        request.actor!.id,
+        query.page,
+        query.pageSize,
+      );
+      sendPage(response, result.data, result);
+    },
+  );
+
+  router.get(
+    "/tickets",
+    requireRole("STUDENT"),
+    async (request, response) => {
+      const query = parseInput(paginationQuerySchema, request.query);
+      const result = await tickets.listForStudent(
         request.actor!.id,
         query.page,
         query.pageSize,

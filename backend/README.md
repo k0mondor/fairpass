@@ -2,7 +2,7 @@
 
 FairPass 的 TypeScript + Express 后端。HTTP API 基础路径为 `/api/v1`，业务契约见仓库 `docs/API_V1.md` 与 `docs/SHARED_CONTRACT.md`。
 
-当前完成项目初始化、统一 HTTP 基础设施、SQLite 初始迁移、演示账号 Seed、请求校验、Demo token 认证、活动查询和报名、统一 Fabric Gateway Adapter 与内存 Mock、幂等创建活动，以及可恢复的持久化抽签状态机；票务 HTTP 流程将按 `docs/BACKEND_TASK.md` 继续实现。
+当前完成项目初始化、统一 HTTP 基础设施、SQLite 初始迁移、演示账号 Seed、请求校验、Demo token 认证、活动查询和报名、统一 Fabric Gateway Adapter 与内存 Mock、幂等创建活动、可恢复的持久化抽签状态机，以及领票、票权查询、转让和核销；操作记录 HTTP 流程将按 `docs/BACKEND_TASK.md` 继续实现。
 
 ## 环境要求
 
@@ -72,7 +72,7 @@ token 使用 `DEMO_TOKEN_SECRET` 进行 HS256 签名，并校验 issuer、audien
 
 共享校验模块覆盖 UUID、64 位小写十六进制票 ID、角色与状态枚举、带时区 ISO 时间、分页、活动创建、空请求体、转让目标和幂等 key。已知参数非法或请求形状错误统一返回 `400 VALIDATION_ERROR`；分页默认 `page=1&pageSize=20`，`pageSize` 最大为 100。
 
-## 活动与报名接口
+## 活动、报名、抽签与票务接口
 
 当前提供以下需要 Bearer token 的接口：
 
@@ -86,6 +86,11 @@ token 使用 `DEMO_TOKEN_SECRET` 进行 HS256 签名，并校验 issuer、audien
 | `GET /api/v1/me/registrations` | 学生 | 本人报名列表，每项附完整活动 |
 | `POST /api/v1/events/:eventId/draw` | 本活动主办方 | 截止后、开始前发布唯一抽签结果，请求体为 `{}` |
 | `GET /api/v1/events/:eventId/draw` | 本活动主办方 | 查询抽签状态；确认前隐藏名单与哈希 |
+| `POST /api/v1/events/:eventId/tickets/claim` | 中签学生 | 活动开始前领取确定性 ticketId 的门票，确认后返回 201 |
+| `GET /api/v1/me/tickets` | 学生 | 通过 Gateway owner 索引分页查询当前持有票，每项附完整活动 |
+| `GET /api/v1/tickets/:ticketId` | 当前持有人、本活动主办方、检票员 | 查询门票详情并附完整活动 |
+| `POST /api/v1/tickets/:ticketId/transfer` | 当前持有人 | 活动开始前将 ACTIVE 门票转给另一个学生，最多一次 |
+| `POST /api/v1/tickets/:ticketId/redeem` | 检票员 | 活动进行期间核销，返回更新后的票和本次已确认交易的 Operation |
 
 活动列表按 `createdAt DESC, id DESC` 稳定排序。到达 `endAt` 后，读取时状态自动呈现为 `FINISHED`，筛选和分页 total 使用相同的有效状态。
 
@@ -98,6 +103,14 @@ token 使用 `DEMO_TOKEN_SECRET` 进行 HS256 签名，并校验 issuer、audien
 抽签在 SQLite `BEGIN IMMEDIATE` 事务中锁定报名快照，使用 Node.js 密码学安全随机数选择 `min(capacity, registrationCount)` 名中签者，再把排序后的规范 JSON、SHA-256 哈希和 `DRAWING` 状态一并持久化。Gateway 只接收这份已保存名单；确认后才写入 `draw_winners`、更新 `WON/LOST` 和把活动置为 `DRAWN`。并发请求不会生成第二份名单。
 
 `PublishDraw` 结果未知或服务重试时，后端先用 `GetEvent` 对账：同一哈希会完成本地收尾，明确未发布时最多以原名单安全重试一次，哈希不一致则把尝试标记为 `CONFLICT` 并返回 503。`OPEN`/`DRAWING` 的查询始终返回 `winnersHash: null` 和空名单，只有本活动主办方能在确认后查看中签用户。
+
+领票前会核对 SQLite 中已经确认的中签资格、活动开始时间及确定性 ticketId 是否已存在，再调用 Gateway `ClaimTicket`。只有 commit 确认，或提交结果未知后通过 `GetTicket` 对账确认该票存在且身份字段一致，才返回 201；明确未提交时最多以同一 eventId 和 winnerId 安全重试一次。未中签、重复领取和活动已开始分别返回 `NOT_WINNER`、`ALREADY_CLAIMED` 和 `CLAIM_CLOSED`。
+
+本人门票列表只读取 Gateway 的当前 owner 索引，在服务端按 `claimedAt DESC, id DESC` 排序和分页，因此转出后不会继续出现在原持有人列表。票详情仅允许当前持有人、活动所属主办方和检票员读取。列表和详情都附加本地完整活动及链上确认计数；Gateway 不可用或链上票与本地活动不一致时返回 503，不使用本地票权缓存兜底。
+
+转让前会校验请求人是当前持有人、接收人是已存在的其他学生、票未核销且未转让过，并要求 `now < startAt`。链上确认后 owner 索引立即生效。提交结果未知时读取同一张票对账；状态仍与提交前完全一致时最多重试一次，状态冲突或无法确认时返回 503。
+
+核销只允许检票员在 `startAt <= now < endAt` 执行。正常成功直接使用本次 `submitAndConfirm` 返回的 Operation，并校验其 `id`、`txId`、票、活动和检票员均对应本次交易；commit unknown 时只按异常携带的精确 txId 查询并核对操作记录，不会用“最新一条”猜测成功交易。响应中的票附完整活动及更新后的链上核销计数。
 
 链上抽签尚未发布的活动，其 `winnerCount`、`issuedCount`、`redeemedCount` 为 0 且 `myTicket` 为 null。已确认抽签的活动通过统一 Gateway 读取链上计数和当前 owner；Gateway 不可用、链上记录缺失或提交结果仍不确定时返回 `503 FABRIC_UNAVAILABLE`，不会用本地零值或未确认投影伪装链上状态。
 
