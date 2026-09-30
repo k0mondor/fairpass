@@ -5,6 +5,7 @@ import { loadAuthConfig } from "./config/auth.js";
 import { loadFabricConfig } from "./config/fabric.js";
 import { openDatabase } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
+import { DrawRepository } from "./db/repositories/draw-repository.js";
 import { EventRepository } from "./db/repositories/event-repository.js";
 import { IdempotencyRepository } from "./db/repositories/idempotency-repository.js";
 import { RegistrationRepository } from "./db/repositories/registration-repository.js";
@@ -13,6 +14,7 @@ import { createGatewayAdapter } from "./fabric/create-gateway-adapter.js";
 import { createApiRouter } from "./routes/index.js";
 import { AuthService } from "./services/auth-service.js";
 import { DemoTokenService } from "./services/demo-token-service.js";
+import { DrawService } from "./services/draw-service.js";
 import { EventCreationService } from "./services/event-creation-service.js";
 import { EventService } from "./services/event-service.js";
 import { GatewayLedgerReadService } from "./services/ledger-read-service.js";
@@ -26,6 +28,7 @@ runMigrations(database);
 
 const users = new UserRepository(database);
 const eventRepository = new EventRepository(database);
+const drawRepository = new DrawRepository(database);
 const idempotencyRepository = new IdempotencyRepository(database);
 const registrationRepository = new RegistrationRepository(database);
 const tokens = new DemoTokenService(loadAuthConfig());
@@ -46,8 +49,20 @@ const registrations = new RegistrationService(
   registrationRepository,
   events,
 );
+const draws = new DrawService(
+  database,
+  eventRepository,
+  drawRepository,
+  gateway,
+);
 const app = createApp({
-  apiRouter: createApiRouter({ auth, eventCreation, events, registrations }),
+  apiRouter: createApiRouter({
+    auth,
+    draws,
+    eventCreation,
+    events,
+    registrations,
+  }),
 });
 
 if (gateway.mode === "mock") {

@@ -2,7 +2,7 @@
 
 FairPass 的 TypeScript + Express 后端。HTTP API 基础路径为 `/api/v1`，业务契约见仓库 `docs/API_V1.md` 与 `docs/SHARED_CONTRACT.md`。
 
-当前完成项目初始化、统一 HTTP 基础设施、SQLite 初始迁移、演示账号 Seed、请求校验、Demo token 认证、活动查询和报名、统一 Fabric Gateway Adapter 与内存 Mock，以及幂等创建活动；抽签和票务 HTTP 流程将按 `docs/BACKEND_TASK.md` 继续实现。
+当前完成项目初始化、统一 HTTP 基础设施、SQLite 初始迁移、演示账号 Seed、请求校验、Demo token 认证、活动查询和报名、统一 Fabric Gateway Adapter 与内存 Mock、幂等创建活动，以及可恢复的持久化抽签状态机；票务 HTTP 流程将按 `docs/BACKEND_TASK.md` 继续实现。
 
 ## 环境要求
 
@@ -84,6 +84,8 @@ token 使用 `DEMO_TOKEN_SECRET` 进行 HS256 签名，并校验 issuer、audien
 | `GET /api/v1/events/:eventId` | 已登录 | 活动详情；学生附加 `myRegistration` 和 `myTicket` |
 | `POST /api/v1/events/:eventId/registrations` | 学生 | OPEN 且截止前报名，请求体为 `{}` |
 | `GET /api/v1/me/registrations` | 学生 | 本人报名列表，每项附完整活动 |
+| `POST /api/v1/events/:eventId/draw` | 本活动主办方 | 截止后、开始前发布唯一抽签结果，请求体为 `{}` |
+| `GET /api/v1/events/:eventId/draw` | 本活动主办方 | 查询抽签状态；确认前隐藏名单与哈希 |
 
 活动列表按 `createdAt DESC, id DESC` 稳定排序。到达 `endAt` 后，读取时状态自动呈现为 `FINISHED`，筛选和分页 total 使用相同的有效状态。
 
@@ -92,6 +94,10 @@ token 使用 `DEMO_TOKEN_SECRET` 进行 HS256 签名，并校验 issuer、audien
 创建活动会先在 SQLite `BEGIN IMMEDIATE` 事务中把全局唯一的 `Idempotency-Key` 固定到 actorId、规范化请求 SHA-256 和 eventId，再调用 Gateway `CreateEvent`。只有 commit 确认，或通过 `GetEvent` 对账确认链上字段一致后，才会在同一 SQLite 事务中保存活动并把幂等记录标为 `CONFIRMED`。同 key、actor 和请求重放返回原活动与 200；不同 actor 或 payload 复用 key 返回 `409 IDEMPOTENCY_CONFLICT`。
 
 提交结果未知时会保留 `PENDING` 记录并按固定 eventId 查询链上状态。链上存在且字段一致时完成本地收尾；明确不存在时只允许使用原 eventId 重试一次；查询仍不可用时返回 `503 FABRIC_UNAVAILABLE`。并发的相同创建意图会合并到同一进行中任务，不会生成第二个 eventId。Mock 模式下这些语义可用于恢复测试，但交易仍不是真实上链。
+
+抽签在 SQLite `BEGIN IMMEDIATE` 事务中锁定报名快照，使用 Node.js 密码学安全随机数选择 `min(capacity, registrationCount)` 名中签者，再把排序后的规范 JSON、SHA-256 哈希和 `DRAWING` 状态一并持久化。Gateway 只接收这份已保存名单；确认后才写入 `draw_winners`、更新 `WON/LOST` 和把活动置为 `DRAWN`。并发请求不会生成第二份名单。
+
+`PublishDraw` 结果未知或服务重试时，后端先用 `GetEvent` 对账：同一哈希会完成本地收尾，明确未发布时最多以原名单安全重试一次，哈希不一致则把尝试标记为 `CONFLICT` 并返回 503。`OPEN`/`DRAWING` 的查询始终返回 `winnersHash: null` 和空名单，只有本活动主办方能在确认后查看中签用户。
 
 链上抽签尚未发布的活动，其 `winnerCount`、`issuedCount`、`redeemedCount` 为 0 且 `myTicket` 为 null。已确认抽签的活动通过统一 Gateway 读取链上计数和当前 owner；Gateway 不可用、链上记录缺失或提交结果仍不确定时返回 `503 FABRIC_UNAVAILABLE`，不会用本地零值或未确认投影伪装链上状态。
 

@@ -5,6 +5,7 @@ import { createApp } from "../src/app.js";
 import type { AuthConfig } from "../src/config/auth.js";
 import { openDatabase, type DatabaseConnection } from "../src/db/client.js";
 import { runMigrations } from "../src/db/migrate.js";
+import { DrawRepository } from "../src/db/repositories/draw-repository.js";
 import { EventRepository } from "../src/db/repositories/event-repository.js";
 import { IdempotencyRepository } from "../src/db/repositories/idempotency-repository.js";
 import { RegistrationRepository } from "../src/db/repositories/registration-repository.js";
@@ -15,6 +16,7 @@ import type { ChainEvent } from "../src/fabric/types.js";
 import { createApiRouter } from "../src/routes/index.js";
 import { AuthService } from "../src/services/auth-service.js";
 import { DemoTokenService } from "../src/services/demo-token-service.js";
+import { DrawService } from "../src/services/draw-service.js";
 import {
   EventCreationService,
   prepareCreateEvent,
@@ -81,6 +83,7 @@ const createContext = (): TestContext => {
 
   const users = new UserRepository(database);
   const eventRepository = new EventRepository(database);
+  const drawRepository = new DrawRepository(database);
   const idempotency = new IdempotencyRepository(database);
   const registrationRepository = new RegistrationRepository(database);
   const auth = new AuthService(
@@ -122,8 +125,17 @@ const createContext = (): TestContext => {
     events,
     () => new Date(now),
   );
+  const draws = new DrawService(
+    database,
+    eventRepository,
+    drawRepository,
+    gateway,
+    () => new Date(now),
+    () => 0,
+  );
   const apiRouter = createApiRouter({
     auth,
+    draws,
     eventCreation,
     events,
     registrations,

@@ -2,6 +2,7 @@ import { Router } from "express";
 
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import type { AuthService } from "../services/auth-service.js";
+import type { DrawService } from "../services/draw-service.js";
 import type { EventCreationService } from "../services/event-creation-service.js";
 import type { EventService } from "../services/event-service.js";
 import type { RegistrationService } from "../services/registration-service.js";
@@ -17,6 +18,7 @@ import {
 
 export interface EventRouterDependencies {
   auth: AuthService;
+  draws: DrawService;
   eventCreation: EventCreationService;
   events: EventService;
   registrations: RegistrationService;
@@ -24,6 +26,7 @@ export interface EventRouterDependencies {
 
 export const createEventRouter = ({
   auth,
+  draws,
   eventCreation,
   events,
   registrations,
@@ -61,6 +64,30 @@ export const createEventRouter = ({
       parseInput(emptyBodySchema, request.body);
       const registration = registrations.register(eventId, request.actor!.id);
       sendData(response, registration, 201);
+    },
+  );
+
+  router.post(
+    "/:eventId/draw",
+    requireRole("ORGANIZER"),
+    async (request, response) => {
+      const { eventId } = parseInput(eventIdParamsSchema, request.params);
+      parseInput(emptyBodySchema, request.body);
+      const result = await draws.publish(eventId, request.actor!.id);
+      response.locals.eventId = eventId;
+      response.locals.txId = result.txId;
+      sendData(response, result);
+    },
+  );
+
+  router.get(
+    "/:eventId/draw",
+    requireRole("ORGANIZER"),
+    (request, response) => {
+      const { eventId } = parseInput(eventIdParamsSchema, request.params);
+      response.locals.eventId = eventId;
+      const result = draws.getStatus(eventId, request.actor!.id);
+      sendData(response, result);
     },
   );
 
