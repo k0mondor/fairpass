@@ -24,6 +24,7 @@ import {
 } from "../src/services/event-creation-service.js";
 import { EventService } from "../src/services/event-service.js";
 import { GatewayLedgerReadService } from "../src/services/ledger-read-service.js";
+import { OperationService } from "../src/services/operation-service.js";
 import { RegistrationService } from "../src/services/registration-service.js";
 import { TicketService } from "../src/services/ticket-service.js";
 
@@ -141,11 +142,13 @@ const createContext = (): TestContext => {
     events,
     () => new Date(now),
   );
+  const operations = new OperationService(gateway, events, tickets);
   const apiRouter = createApiRouter({
     auth,
     draws,
     eventCreation,
     events,
+    operations,
     registrations,
     tickets,
   });

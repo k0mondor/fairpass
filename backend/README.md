@@ -2,7 +2,7 @@
 
 FairPass 的 TypeScript + Express 后端。HTTP API 基础路径为 `/api/v1`，业务契约见仓库 `docs/API_V1.md` 与 `docs/SHARED_CONTRACT.md`。
 
-当前完成项目初始化、统一 HTTP 基础设施、SQLite 初始迁移、演示账号 Seed、请求校验、Demo token 认证、活动查询和报名、统一 Fabric Gateway Adapter 与内存 Mock、幂等创建活动、可恢复的持久化抽签状态机，以及领票、票权查询、转让和核销；操作记录 HTTP 流程将按 `docs/BACKEND_TASK.md` 继续实现。
+当前已经完成 Mock Gateway 模式下的 v1 HTTP 业务面，包括项目基础设施、SQLite、Demo 认证、活动与报名、幂等创建、可恢复抽签、领票、票权查询、转让、核销，以及活动级和票级已确认操作历史。真实 Fabric Gateway 接入、三角色联调和演示恢复说明仍需按 `docs/BACKEND_TASK.md` 收尾。
 
 ## 环境要求
 
@@ -91,6 +91,8 @@ token 使用 `DEMO_TOKEN_SECRET` 进行 HS256 签名，并校验 issuer、audien
 | `GET /api/v1/tickets/:ticketId` | 当前持有人、本活动主办方、检票员 | 查询门票详情并附完整活动 |
 | `POST /api/v1/tickets/:ticketId/transfer` | 当前持有人 | 活动开始前将 ACTIVE 门票转给另一个学生，最多一次 |
 | `POST /api/v1/tickets/:ticketId/redeem` | 检票员 | 活动进行期间核销，返回更新后的票和本次已确认交易的 Operation |
+| `GET /api/v1/events/:eventId/operations` | 本活动主办方 | 已确认活动历史，支持分页和 `type` 筛选 |
+| `GET /api/v1/tickets/:ticketId/operations` | 当前持有人、本活动主办方、检票员 | 已确认票务历史，支持分页 |
 
 活动列表按 `createdAt DESC, id DESC` 稳定排序。到达 `endAt` 后，读取时状态自动呈现为 `FINISHED`，筛选和分页 total 使用相同的有效状态。
 
@@ -111,6 +113,8 @@ token 使用 `DEMO_TOKEN_SECRET` 进行 HS256 签名，并校验 issuer、audien
 转让前会校验请求人是当前持有人、接收人是已存在的其他学生、票未核销且未转让过，并要求 `now < startAt`。链上确认后 owner 索引立即生效。提交结果未知时读取同一张票对账；状态仍与提交前完全一致时最多重试一次，状态冲突或无法确认时返回 503。
 
 核销只允许检票员在 `startAt <= now < endAt` 执行。正常成功直接使用本次 `submitAndConfirm` 返回的 Operation，并校验其 `id`、`txId`、票、活动和检票员均对应本次交易；commit unknown 时只按异常携带的精确 txId 查询并核对操作记录，不会用“最新一条”猜测成功交易。响应中的票附完整活动及更新后的链上核销计数。
+
+活动操作历史仅允许本活动主办方查看，可按五种 `OperationType` 筛选；票操作历史沿用票详情权限，只返回该票的领票、转让和核销。两类接口均从 Gateway 读取、按 `occurredAt DESC, txId DESC` 稳定排序后服务端分页，并校验交易 ID、资源归属、channel、chaincode 和区块号格式。Gateway 不可用或返回跨资源、重复、未确认形状的数据时返回 503；`blockNumber` 未提供时保持 `null`，不会伪造。
 
 链上抽签尚未发布的活动，其 `winnerCount`、`issuedCount`、`redeemedCount` 为 0 且 `myTicket` 为 null。已确认抽签的活动通过统一 Gateway 读取链上计数和当前 owner；Gateway 不可用、链上记录缺失或提交结果仍不确定时返回 `503 FABRIC_UNAVAILABLE`，不会用本地零值或未确认投影伪装链上状态。
 

@@ -22,6 +22,7 @@ import { DrawService } from "../src/services/draw-service.js";
 import { EventCreationService } from "../src/services/event-creation-service.js";
 import { EventService } from "../src/services/event-service.js";
 import { GatewayLedgerReadService } from "../src/services/ledger-read-service.js";
+import { OperationService } from "../src/services/operation-service.js";
 import { RegistrationService } from "../src/services/registration-service.js";
 import { TicketService } from "../src/services/ticket-service.js";
 import type { Ticket } from "../src/types/domain.js";
@@ -164,11 +165,13 @@ const createContext = async (): Promise<TestContext> => {
     events,
     () => new Date(clock.now),
   );
+  const operations = new OperationService(gateway, events, tickets);
   const apiRouter = createApiRouter({
     auth,
     draws,
     eventCreation,
     events,
+    operations,
     registrations: registrationService,
     tickets,
   });
@@ -221,6 +224,25 @@ const redeem = (context: TestContext, token: string, ticketId: string) =>
     .post(`/api/v1/tickets/${ticketId}/redeem`)
     .set("Authorization", `Bearer ${token}`)
     .send({});
+
+const eventOperations = (
+  context: TestContext,
+  token: string,
+  query = "",
+) =>
+  request(context.app)
+    .get(`/api/v1/events/${eventId}/operations${query}`)
+    .set("Authorization", `Bearer ${token}`);
+
+const ticketHistory = (
+  context: TestContext,
+  token: string,
+  ticketId: string,
+  query = "",
+) =>
+  request(context.app)
+    .get(`/api/v1/tickets/${ticketId}/operations${query}`)
+    .set("Authorization", `Bearer ${token}`);
 
 const ticketOperations = (context: TestContext) =>
   context.gateway
@@ -683,5 +705,163 @@ describe("G4 and G5 ticket redemption", () => {
       expect(ledgerOperations).toHaveLength(1);
       expect(ledgerOperations[0]?.txId).toBe(operation.txId);
     }
+  });
+});
+
+describe("H confirmed operation history", () => {
+  it("paginates, filters, validates, and sorts the organizer's event history", async () => {
+    const context = await createContext();
+    const owner = await login(context, "student2");
+    const organizer = await login(context, "organizer1");
+    const otherOrganizer = await login(context, "organizer2");
+    const student = await login(context, "student1");
+    const inspector = await login(context, "inspector1");
+    const claimed = await claim(context, owner);
+    const ticketId = claimed.body.data.id as string;
+    await transfer(context, owner, ticketId, studentIds.loser);
+    context.clock.now = new Date(startAt);
+    await redeem(context, inspector, ticketId);
+
+    const response = await eventOperations(
+      context,
+      organizer,
+      "?page=1&pageSize=100",
+    );
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ page: 1, pageSize: 100, total: 5 });
+    expect(response.body.data.map(({ type }: { type: string }) => type)).toEqual(
+      expect.arrayContaining([
+        "EVENT_CREATED",
+        "DRAW_PUBLISHED",
+        "TICKET_CLAIMED",
+        "TICKET_TRANSFERRED",
+        "TICKET_REDEEMED",
+      ]),
+    );
+    for (const operation of response.body.data) {
+      expect(operation).toMatchObject({
+        id: operation.txId,
+        eventId,
+        channelName: "test-channel",
+        chaincodeName: "fairpass",
+        blockNumber: null,
+      });
+    }
+    const sorted = [...response.body.data].sort(
+      (left, right) =>
+        right.occurredAt.localeCompare(left.occurredAt) ||
+        right.txId.localeCompare(left.txId),
+    );
+    expect(response.body.data).toEqual(sorted);
+
+    const filtered = await eventOperations(
+      context,
+      organizer,
+      "?type=TICKET_TRANSFERRED",
+    );
+    expect(filtered.body).toMatchObject({ page: 1, pageSize: 20, total: 1 });
+    expect(filtered.body.data[0]).toMatchObject({
+      ticketId,
+      type: "TICKET_TRANSFERRED",
+      fromUserId: studentIds.winner,
+      toUserId: studentIds.loser,
+    });
+
+    expect((await eventOperations(context, otherOrganizer)).status).toBe(403);
+    expect((await eventOperations(context, student)).status).toBe(403);
+    expect(
+      (await eventOperations(context, organizer, "?type=REGISTRATION_CREATED"))
+        .status,
+    ).toBe(400);
+    expect((await eventOperations(context, organizer, "?page=0")).status).toBe(
+      400,
+    );
+    const missing = await request(context.app)
+      .get(`/api/v1/events/${missingEventId}/operations`)
+      .set("Authorization", `Bearer ${organizer}`);
+    expect(missing.status).toBe(404);
+    expect(missing.body.error.code).toBe("NOT_FOUND");
+  });
+
+  it("returns only ticket operations to the current authorized viewers", async () => {
+    const context = await createContext();
+    const originalOwner = await login(context, "student2");
+    const currentOwner = await login(context, "student1");
+    const organizer = await login(context, "organizer1");
+    const otherOrganizer = await login(context, "organizer2");
+    const inspector = await login(context, "inspector1");
+    const claimed = await claim(context, originalOwner);
+    const ticketId = claimed.body.data.id as string;
+    await transfer(context, originalOwner, ticketId, studentIds.loser);
+    context.clock.now = new Date(startAt);
+    await redeem(context, inspector, ticketId);
+
+    for (const viewer of [currentOwner, organizer, inspector]) {
+      const response = await ticketHistory(
+        context,
+        viewer,
+        ticketId,
+        "?page=1&pageSize=2",
+      );
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({ page: 1, pageSize: 2, total: 3 });
+      expect(response.body.data).toHaveLength(2);
+      expect(
+        response.body.data.every(
+          (operation: { ticketId: string }) => operation.ticketId === ticketId,
+        ),
+      ).toBe(true);
+    }
+
+    const secondPage = await ticketHistory(
+      context,
+      currentOwner,
+      ticketId,
+      "?page=2&pageSize=2",
+    );
+    expect(secondPage.body).toMatchObject({ page: 2, pageSize: 2, total: 3 });
+    expect(secondPage.body.data).toHaveLength(1);
+
+    const all = await ticketHistory(
+      context,
+      currentOwner,
+      ticketId,
+      "?pageSize=100",
+    );
+    expect(all.body.data.map(({ type }: { type: string }) => type)).toEqual(
+      expect.arrayContaining([
+        "TICKET_CLAIMED",
+        "TICKET_TRANSFERRED",
+        "TICKET_REDEEMED",
+      ]),
+    );
+    expect(all.body.data).toHaveLength(3);
+    expect((await ticketHistory(context, originalOwner, ticketId)).status).toBe(
+      403,
+    );
+    expect((await ticketHistory(context, otherOrganizer, ticketId)).status).toBe(
+      403,
+    );
+    const missing = await ticketHistory(context, inspector, "f".repeat(64));
+    expect(missing.status).toBe(404);
+    expect(missing.body.error.code).toBe("NOT_FOUND");
+  });
+
+  it("returns 503 instead of cached history when operation queries fail", async () => {
+    const context = await createContext();
+    const owner = await login(context, "student2");
+    const organizer = await login(context, "organizer1");
+    const claimed = await claim(context, owner);
+    const ticketId = claimed.body.data.id as string;
+
+    context.gateway.queueFault("GetOperationsByEvent", { kind: "NETWORK" });
+    const eventFailure = await eventOperations(context, organizer);
+    expect(eventFailure.status).toBe(503);
+    expect(eventFailure.body.error.code).toBe("FABRIC_UNAVAILABLE");
+
+    context.gateway.queueFault("GetOperationsByTicket", { kind: "NETWORK" });
+    const ticketFailure = await ticketHistory(context, owner, ticketId);
+    expect(ticketFailure.status).toBe(503);
+    expect(ticketFailure.body.error.code).toBe("FABRIC_UNAVAILABLE");
   });
 });

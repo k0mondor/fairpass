@@ -24,6 +24,7 @@ import {
   type TicketCounts,
   UnavailableLedgerReadService,
 } from "../src/services/ledger-read-service.js";
+import { OperationService } from "../src/services/operation-service.js";
 import { RegistrationService } from "../src/services/registration-service.js";
 import { TicketService } from "../src/services/ticket-service.js";
 import type { EventStatus, Ticket } from "../src/types/domain.js";
@@ -154,11 +155,13 @@ const createContext = (
     events,
     () => new Date(now),
   );
+  const operations = new OperationService(gateway, events, tickets);
   const apiRouter = createApiRouter({
     auth,
     draws,
     eventCreation,
     events,
+    operations,
     registrations: registrationService,
     tickets,
   });

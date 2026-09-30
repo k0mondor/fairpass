@@ -5,6 +5,7 @@ import type { AuthService } from "../services/auth-service.js";
 import type { DrawService } from "../services/draw-service.js";
 import type { EventCreationService } from "../services/event-creation-service.js";
 import type { EventService } from "../services/event-service.js";
+import type { OperationService } from "../services/operation-service.js";
 import type { RegistrationService } from "../services/registration-service.js";
 import type { TicketService } from "../services/ticket-service.js";
 import { sendData, sendPage } from "../utils/http-response.js";
@@ -15,6 +16,7 @@ import {
   eventIdParamsSchema,
   eventListQuerySchema,
   idempotencyKeySchema,
+  operationListQuerySchema,
 } from "../validation/schemas.js";
 
 export interface EventRouterDependencies {
@@ -22,6 +24,7 @@ export interface EventRouterDependencies {
   draws: DrawService;
   eventCreation: EventCreationService;
   events: EventService;
+  operations: OperationService;
   registrations: RegistrationService;
   tickets: TicketService;
 }
@@ -31,6 +34,7 @@ export const createEventRouter = ({
   draws,
   eventCreation,
   events,
+  operations,
   registrations,
   tickets,
 }: EventRouterDependencies): Router => {
@@ -94,6 +98,22 @@ export const createEventRouter = ({
       response.locals.eventId = eventId;
       response.locals.txId = result.txId;
       sendData(response, result);
+    },
+  );
+
+  router.get(
+    "/:eventId/operations",
+    requireRole("ORGANIZER"),
+    async (request, response) => {
+      const { eventId } = parseInput(eventIdParamsSchema, request.params);
+      const query = parseInput(operationListQuerySchema, request.query);
+      response.locals.eventId = eventId;
+      const result = await operations.listForEvent(
+        eventId,
+        request.actor!.id,
+        query,
+      );
+      sendPage(response, result.data, result);
     },
   );
 

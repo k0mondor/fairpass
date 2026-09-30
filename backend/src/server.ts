@@ -18,6 +18,7 @@ import { DrawService } from "./services/draw-service.js";
 import { EventCreationService } from "./services/event-creation-service.js";
 import { EventService } from "./services/event-service.js";
 import { GatewayLedgerReadService } from "./services/ledger-read-service.js";
+import { OperationService } from "./services/operation-service.js";
 import { RegistrationService } from "./services/registration-service.js";
 import { TicketService } from "./services/ticket-service.js";
 
@@ -62,12 +63,14 @@ const tickets = new TicketService(
   gateway,
   events,
 );
+const operations = new OperationService(gateway, events, tickets);
 const app = createApp({
   apiRouter: createApiRouter({
     auth,
     draws,
     eventCreation,
     events,
+    operations,
     registrations,
     tickets,
   }),

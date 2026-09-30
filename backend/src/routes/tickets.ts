@@ -2,22 +2,26 @@ import { Router } from "express";
 
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import type { AuthService } from "../services/auth-service.js";
+import type { OperationService } from "../services/operation-service.js";
 import type { TicketService } from "../services/ticket-service.js";
-import { sendData } from "../utils/http-response.js";
+import { sendData, sendPage } from "../utils/http-response.js";
 import { parseInput } from "../validation/parse.js";
 import {
   emptyBodySchema,
+  paginationQuerySchema,
   ticketIdParamsSchema,
   transferTicketBodySchema,
 } from "../validation/schemas.js";
 
 export interface TicketRouterDependencies {
   auth: AuthService;
+  operations: OperationService;
   tickets: TicketService;
 }
 
 export const createTicketRouter = ({
   auth,
+  operations,
   tickets,
 }: TicketRouterDependencies): Router => {
   const router = Router();
@@ -29,6 +33,19 @@ export const createTicketRouter = ({
     const ticket = await tickets.get(ticketId, request.actor!);
     response.locals.eventId = ticket.eventId;
     sendData(response, ticket);
+  });
+
+  router.get("/:ticketId/operations", async (request, response) => {
+    const { ticketId } = parseInput(ticketIdParamsSchema, request.params);
+    const query = parseInput(paginationQuerySchema, request.query);
+    response.locals.ticketId = ticketId;
+    const result = await operations.listForTicket(
+      ticketId,
+      request.actor!,
+      query.page,
+      query.pageSize,
+    );
+    sendPage(response, result.data, result);
   });
 
   router.post(

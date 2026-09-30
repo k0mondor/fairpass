@@ -4,6 +4,7 @@ import type { AuthService } from "../services/auth-service.js";
 import type { DrawService } from "../services/draw-service.js";
 import type { EventCreationService } from "../services/event-creation-service.js";
 import type { EventService } from "../services/event-service.js";
+import type { OperationService } from "../services/operation-service.js";
 import type { RegistrationService } from "../services/registration-service.js";
 import type { TicketService } from "../services/ticket-service.js";
 import { createAuthRouter } from "./auth.js";
@@ -16,6 +17,7 @@ export interface ApiRouterDependencies {
   draws: DrawService;
   eventCreation: EventCreationService;
   events: EventService;
+  operations: OperationService;
   registrations: RegistrationService;
   tickets: TicketService;
 }
