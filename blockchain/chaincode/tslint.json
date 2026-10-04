@@ -5,19 +5,38 @@
     ],
     "jsRules": {},
     "rules": {
-        "indent": [true, "spaces", 4],
-        "linebreak-style": [true, "LF"],
-        "quotemark": [true, "single"],
-        "semicolon": [true, "always"],
+        "indent": [
+            true,
+            "spaces",
+            4
+        ],
+        "linebreak-style": [
+            true,
+            "LF"
+        ],
+        "quotemark": [
+            true,
+            "single"
+        ],
+        "semicolon": [
+            true,
+            "always"
+        ],
         "no-console": false,
         "curly": true,
         "triple-equals": true,
         "no-string-throw": true,
         "no-var-keyword": true,
         "no-trailing-whitespace": true,
-        "object-literal-key-quotes": [true, "as-needed"],
+        "object-literal-key-quotes": [
+            true,
+            "as-needed"
+        ],
         "object-literal-sort-keys": false,
-        "max-line-length": false
+        "max-line-length": false,
+        "ordered-imports": false,
+        "interface-name": false,
+        "array-type": false
     },
     "rulesDirectory": []
 }
