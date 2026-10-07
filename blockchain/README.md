@@ -8,7 +8,7 @@
 | 项 | 内容 |
 | --- | --- |
 | 运行位置 | Ubuntu 20.04 虚拟机（不是 WSL） |
-| Node.js | 20（手动安装） |
+| Node.js | 22 |
 | Fabric / Fabric CLI | 2.4.6 |
 | Docker | 26.1.3 |
 | test-network 位置 | `~/hyperledger/fabric/scripts/fabric-samples/test-network`（下文记作 `$TN`） |
