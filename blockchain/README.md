@@ -55,7 +55,7 @@ peer lifecycle chaincode querycommitted -C mychannel -n fairpass
 ### 账本持久化
 
 - `./network.sh down` 会删除 peer/orderer 的卷，所有链上数据（活动、抽签结果、票、操作记录）都会丢。演示前不要执行。
-- 想保留数据暂停网络：用 `docker stop $(docker ps -q)`，恢复用 `docker start`（不要用 `down`）。
+- 想保留数据暂停网络：先 `docker ps -q > /tmp/running.txt`，再 `docker stop $(cat /tmp/running.txt)`；恢复时 `docker start $(cat /tmp/running.txt)`，等约 30 秒再查询（不要用 `down`）。链码容器（dev-peer…）停止后会被自动删除，`docker start` 提示 No such container 属正常，peer 会在第一次调用时重新创建。已实测：重启后账本数据不变。
 - 升级链码（`deployCC` 递增 sequence）不影响已有账本数据。
 
 ## 3. 链码方法
