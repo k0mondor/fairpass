@@ -135,7 +135,7 @@ Mock 交易 ID 始终以 `mock-` 开头，`blockNumber` 始终为 `null`，服�
 
 ### 本机 WSL 联调
 
-本机环境使用 Ubuntu-22.04 的独立 Docker 引擎，Fabric 2.5.16、官方 fabric-samples v2.4.9 测试网络、Node 22.19.0。工具和网络位于 `/opt/fairpass-dev`。Windows 的 `.wslconfig` 开启 mirrored 网络和 autoProxy；Docker 的代理配置位于 WSL `/etc/systemd/system/docker.service.d/fairpass-proxy.conf`。
+本机环境使用 Ubuntu-22.04 的独立 Docker 引擎，Fabric 2.5.16、官方 fabric-samples v2.4.0 测试网络（commit `0fe4d091d2549607af61bb7c7e1f3b5fa356dc70`）、Node 22.19.0。工具和网络位于 `/opt/fairpass-dev`。Windows 的 `.wslconfig` 开启 mirrored 网络和 autoProxy；Docker 的代理配置位于 WSL `/etc/systemd/system/docker.service.d/fairpass-proxy.conf`。完整安装步骤、实际配置值和文件清单见 [本机 Fabric 环境与演示复现](../docs/LOCAL_FABRIC_SETUP.md)。
 
 在仓库根目录的 PowerShell 启动：
 

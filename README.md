@@ -31,6 +31,8 @@ fairpass/
 
 ## 演示数据与 Git 提交
 
+环境版本、首次安装、需要修改的配置文件及日常启动步骤见 [本机 Fabric 环境与演示复现](docs/LOCAL_FABRIC_SETUP.md)。
+
 仓库保留界面、图片、账号初始化和演示活动准备脚本。数据库、Fabric 本地账本、`.env.local`、密钥以及 `.local/` 下的运行记录不进入 Git；现场领取、转让、核销后的状态也不会随代码提交。
 
 新环境启动后端并初始化测试账号后，在 `backend/` 运行 `npm run demo:campus` 准备四组校园活动与展示门票，再运行 `npm run demo:prepare` 准备 **Pass it on.** 的「已中签、未领取」状态，供学生一现场领票并转让给学生二。脚本通过真实接口写入演示数据，不会清空已有记录。演示过后需要另一张可领取的票时，运行 `npm run demo:prepare -- --new`。

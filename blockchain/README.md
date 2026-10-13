@@ -7,15 +7,19 @@
 
 | 项 | 内容 |
 | --- | --- |
-| 运行位置 | Ubuntu 20.04 虚拟机（不是 WSL） |
-| Node.js | 22 |
-| Fabric / Fabric CLI | 2.4.6 |
-| Docker | 26.1.3 |
-| test-network 位置 | `~/hyperledger/fabric/scripts/fabric-samples/test-network`（下文记作 `$TN`） |
+| 运行位置 | 当前联调：WSL 2 / Ubuntu-22.04；原 Ubuntu 虚拟机仍可按路径另行配置 |
+| Node.js | 22.19.0 |
+| Fabric / Fabric CLI | 2.5.16 |
+| Docker / Compose | 29.1.3 / 2.40.3 |
+| fabric-samples | v2.4.0，commit `0fe4d091d2549607af61bb7c7e1f3b5fa356dc70` |
+| test-network 位置 | `/opt/fairpass-dev/fabric-samples/test-network`（下文记作 `$TN`） |
+
+首次安装、证书与后端配置、演示数据生成见 [本机 Fabric 环境与演示复现](../docs/LOCAL_FABRIC_SETUP.md)。以下手动命令中的链码路径须替换为自己的仓库或 Linux 运行副本路径；本机也可直接使用 `backend/scripts/start-real-wsl.sh` 启动。
 
 准备检查：
 
 ```bash
+export TN=/opt/fairpass-dev/fabric-samples/test-network
 node -v && docker --version && docker ps
 cd $TN && ../bin/peer version
 ```
@@ -25,8 +29,7 @@ cd $TN && ../bin/peer version
 ```bash
 cd $TN
 
-# 干净启动（会清空旧账本）并建通道
-./network.sh down
+# 新环境首次启动并建通道；已有演示网络使用后端启动脚本恢复
 ./network.sh up createChannel -c mychannel
 
 # 首次部署链码（打包/安装/批准/提交一步完成），sequence 从 1 开始
@@ -46,16 +49,16 @@ peer lifecycle chaincode querycommitted -C mychannel -n fairpass
 
 再用 `Sequence + 1` 重新 `deployCC`（例：`-ccv 1.1 -ccs 7`）。升级不会清空账本。
 
-停止网络：
+暂停网络并保留账本（WSL 当前环境）：
 
 ```bash
-./network.sh down        # 删除容器和卷：账本全部丢失
+DOCKER_SOCK=/var/run/docker.sock docker compose -f compose/compose-test-net.yaml -f compose/docker/docker-compose-test-net.yaml stop
 ```
 
 ### 账本持久化
 
 - `./network.sh down` 会删除 peer/orderer 的卷，所有链上数据（活动、抽签结果、票、操作记录）都会丢。演示前不要执行。
-- 想保留数据暂停网络：先 `docker ps -q > /tmp/running.txt`，再 `docker stop $(cat /tmp/running.txt)`；恢复时 `docker start $(cat /tmp/running.txt)`，等约 30 秒再查询（不要用 `down`）。链码容器（dev-peer…）停止后会被自动删除，`docker start` 提示 No such container 属正常，peer 会在第一次调用时重新创建。已实测：重启后账本数据不变。
+- 想保留数据暂停网络：使用上面的 Compose `stop`；恢复时使用后端启动脚本或同一组 Compose 文件执行 `up -d`。peer 会按需恢复链码容器。已实测：重启后账本数据不变。
 - 升级链码（`deployCC` 递增 sequence）不影响已有账本数据。
 
 ## 3. 链码方法
@@ -149,5 +152,5 @@ cd $TN && bash test-fixes.sh      # 期望 11 行全部 PASS
 - 链码不检查 `toUserId` 对应的账号是否存在（见 `TransferTicket` 注释）。
 - 交易时间用 Fabric 交易时间戳，不能靠改后端本机时钟绕过时间限制。
 - 演示用的两场活动由 `scripts/demo-events.sh` 在链上准备（A：7 天后开始，用于领票/转让；B：已开始且已领票，用于核销）。这些活动只存在于链上，后端数据库里没有；界面演示需通过后端接口按同样时间线创建。
-- 后端真实 Gateway 适配器尚未接入，`GetEvent` 和一次写交易的联通验证待做。
-- 链码单元测试（名单异常、领票边界、时间边界、并发冲突）待补。
+- 后端真实 Gateway 已接入，并通过 `fabric:check` 写入/查询检查及 `test:e2e:real` HTTP 全链路验收；实现位于 `backend/src/fabric/real-gateway-adapter.ts`。
+- 链码已有 12 项单元测试，可在 `blockchain/chaincode` 运行 `npm test`；这些测试不能替代多节点真实并发冲突验收。
