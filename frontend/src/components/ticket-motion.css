@@ -1,4 +1,8 @@
 /* Card movement, paper surfaces and their cast shadows live on separate layers. */
+.motion-stage .action-next:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
 .motion-stage [hidden] {
   display: none !important;
 }
@@ -330,10 +334,12 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .deck-rest {
+  .motion-stage[data-motion="reduced"] .deck-rest {
     transition: none;
   }
-  .ticket-collection[data-view="grid"] .deck-rest:hover {
+  .motion-stage[data-motion="reduced"]
+    .ticket-collection[data-view="grid"]
+    .deck-rest:hover {
     transform: none !important;
   }
 }

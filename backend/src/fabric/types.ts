@@ -44,6 +44,7 @@ export interface ConfirmedSubmit<T> {
 
 export interface GatewayAdapter {
   readonly mode: GatewayMode;
+  close?(): void;
 
   evaluate<T>(method: EvaluateMethod, args: readonly string[]): Promise<T>;
   submitAndConfirm<T>(

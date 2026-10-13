@@ -121,7 +121,28 @@ button:focus-visible {
   line-height: 1.8;
 }
 .account-menu small {
+  display: block;
   color: #59616e;
+}
+.account-logout {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  padding: 12px 0 0;
+  border: 0;
+  border-top: 1px solid #dde3e9;
+  background: transparent;
+  color: #59616e;
+  text-align: left;
+  font-size: 12px;
+}
+.account-logout:hover {
+  color: var(--blue);
+}
+.role-switch button:disabled,
+.account-logout:disabled {
+  opacity: 0.55;
+  cursor: wait;
 }
 .role-switch {
   display: grid;
@@ -144,6 +165,11 @@ button:focus-visible {
   text-align: left;
   font: inherit;
   color: #263145;
+}
+.account-menu > .role-switch:first-child {
+  border-top: 0;
+  margin-top: 0;
+  padding-top: 0;
 }
 .role-switch button.selected {
   color: var(--blue);
@@ -354,6 +380,8 @@ button:focus-visible {
   left: clamp(22px, 5vw, 76px);
   right: clamp(22px, 5vw, 76px);
   display: flex;
+  align-items: center;
+  gap: 16px;
   justify-content: space-between;
   font-size: 11px;
   font-weight: 600;
@@ -886,9 +914,13 @@ button:focus-visible {
     font-size: 10px;
   }
   .view-switch {
-    bottom: 25px;
+    bottom: 65px;
   }
   .stage-footer {
+    display: flex;
+    bottom: 10px;
+  }
+  .stage-footer > span:first-child {
     display: none;
   }
   .grid-layout {
@@ -992,9 +1024,15 @@ button:focus-visible {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  *:not(.motion-stage[data-motion="full"], .motion-stage[data-motion="full"] *),
+  *:not(
+      .motion-stage[data-motion="full"],
+      .motion-stage[data-motion="full"] *
+    )::before,
+  *:not(
+      .motion-stage[data-motion="full"],
+      .motion-stage[data-motion="full"] *
+    )::after {
     scroll-behavior: auto !important;
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;

@@ -13,3 +13,6 @@ build/
 coverage/
 *.tsbuildinfo
 .DS_Store
+.local/
+*.pem
+*_sk

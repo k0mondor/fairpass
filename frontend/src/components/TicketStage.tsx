@@ -44,6 +44,8 @@ const clamp = (n: number, min: number, max: number) =>
 const mix = (a: number, b: number, t: number) => a + (b - a) * t;
 const smooth = (t: number) => t * t * (3 - 2 * t);
 const FACE_WIDTH = 440;
+// Only explicitly requested demos override the visitor's motion preference.
+const fullMotion = import.meta.env.VITE_TICKET_MOTION === "full";
 const power2Out = (t: number) => 1 - (1 - t) ** 3;
 const power2InOut = (t: number) =>
   t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2;
@@ -84,11 +86,13 @@ export function TicketStage<T extends TicketIdentity>({
   front,
   back,
   onOpen,
+  onIncoming,
 }: {
   tickets: T[];
   front: (ticket: T) => ReactNode;
   back: (ticket: T, close: () => void) => ReactNode;
   onOpen?: (ticket: T) => void;
+  onIncoming?: () => void;
 }) {
   const [view, setView] = useState<"stack" | "grid">("stack");
   const [active, setActive] = useState(0);
@@ -98,7 +102,7 @@ export function TicketStage<T extends TicketIdentity>({
   const [busy, setBusy] = useState(false);
   const [layoutMoving, setLayoutMoving] = useState(false);
   const [reduced, setReduced] = useState(
-    () => matchMedia("(prefers-reduced-motion: reduce)").matches,
+    () => !fullMotion && matchMedia("(prefers-reduced-motion: reduce)").matches,
   );
   const slots = useRef<(HTMLDivElement | null)[]>([]);
   const rests = useRef<(HTMLDivElement | null)[]>([]);
@@ -136,7 +140,7 @@ export function TicketStage<T extends TicketIdentity>({
 
   useEffect(() => {
     const media = matchMedia("(prefers-reduced-motion: reduce)");
-    const update = () => setReduced(media.matches);
+    const update = () => setReduced(!fullMotion && media.matches);
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, []);
@@ -258,6 +262,11 @@ export function TicketStage<T extends TicketIdentity>({
 
   function nextTicket(direction = -1, releaseVelocity = 0, instant = false) {
     if (locked.current || phase !== "browse" || view !== "stack") return;
+    // With one ticket, active cannot change; an outgoing flight would never unlock.
+    if (tickets.length < 2) {
+      aim(rest());
+      return;
+    }
     if (reduced || instant) {
       resetPose();
       setActive((active + 1) % tickets.length);
@@ -604,6 +613,7 @@ export function TicketStage<T extends TicketIdentity>({
       className={`ticket-stage motion-stage ${isDetail ? "stage-detail" : view === "grid" ? "stage-grid" : ""}`}
       aria-label="我的门票"
       data-phase={phase}
+      data-motion={reduced ? "reduced" : "full"}
       data-layout-transition={layoutMoving ? "true" : undefined}
     >
       <div
@@ -615,14 +625,19 @@ export function TicketStage<T extends TicketIdentity>({
       >
         <div className="grid-intro" hidden={view !== "grid"}>
           <h1>My tickets</h1>
-          <p>Four things worth keeping close.</p>
+          <p>Things worth keeping close.</p>
         </div>
         <button
           className="stage-action action-next"
           hidden={view !== "stack"}
+          disabled={tickets.length < 2}
           onClick={() => nextTicket()}
           onPointerEnter={(e) => {
-            if (e.pointerType === "mouse" && !locked.current)
+            if (
+              e.pointerType === "mouse" &&
+              !locked.current &&
+              tickets.length > 1
+            )
               aim(
                 dragPose(-1, cards.current[active]?.offsetWidth ?? FACE_WIDTH),
               );
@@ -808,6 +823,11 @@ export function TicketStage<T extends TicketIdentity>({
           </div>
           <div className="stage-footer">
             <span>FAIRPASS / CAMPUS EXPERIENCES</span>
+            {onIncoming && (
+              <button className="incoming-entry" onClick={onIncoming}>
+                待接收门票 ↗
+              </button>
+            )}
             <span aria-live="polite">
               {String(active + 1).padStart(2, "0")} /{" "}
               {String(tickets.length).padStart(2, "0")}

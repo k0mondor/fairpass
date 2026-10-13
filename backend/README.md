@@ -2,7 +2,7 @@
 
 FairPass 的 TypeScript + Express 后端。HTTP API 基础路径为 `/api/v1`，业务契约见仓库 `docs/API_V1.md` 与 `docs/SHARED_CONTRACT.md`。
 
-当前已经完成 Mock Gateway 模式下的 v1 HTTP 业务面，包括项目基础设施、SQLite、Demo 认证、活动与报名、幂等创建、可恢复抽签、领票、票权查询、转让、核销，以及活动级和票级已确认操作历史。真实 Fabric Gateway 接入、三角色联调和演示恢复说明仍需按 `docs/BACKEND_TASK.md` 收尾。
+当前包含 v1 HTTP 业务面和真实 Fabric Gateway adapter：SQLite、Demo 认证、活动与报名、幂等创建、可恢复抽签、领票、票权查询、转让、核销，以及活动级和票级已确认操作历史。Mock 模式支持页面开发，真实上链验收使用 real 模式。
 
 ## 环境要求
 
@@ -131,7 +131,42 @@ Mock 交易 ID 始终以 `mock-` 开头，`blockNumber` 始终为 `null`，服�
 
 测试可通过 `MockGatewayAdapter.queueFault(method, fault)` 注入网络、超时、背书、commit、业务冲突和 `COMMIT_UNKNOWN`。除 `COMMIT_UNKNOWN` 外，故障在状态写入前发生；`COMMIT_UNKNOWN` 会先应用状态再抛错，用于验证调用方通过查询对账，不能据异常直接判定交易失败。
 
-设置 `FABRIC_GATEWAY_MODE=real` 时，路由和业务服务无需修改，但当前 real adapter 会安全返回 `503 FABRIC_UNAVAILABLE`。真实 Fabric SDK、证书加载与 peer 连接将在链码可用后接入；在此之前不能用 `real` 模式宣称联通成功。
+设置 `FABRIC_GATEWAY_MODE=real` 时，adapter 使用 `@hyperledger/fabric-gateway` 和 gRPC 连接 peer，读取配置中的 TLS 根证书、客户端证书和私钥。写入经过背书、提交和 commit 状态确认；只有 VALID 才返回成功，并按精确 txId 读取同一交易的 Operation。操作历史补充 channelName、chaincodeName；无法获取的历史区块号保持 null。提交或确认阶段失联保留 txId，以便业务层对账。缺失配置或连接失败返回 `503 FABRIC_UNAVAILABLE`。
+
+### 本机 WSL 联调
+
+本机环境使用 Ubuntu-22.04 的独立 Docker 引擎，Fabric 2.5.16、官方 fabric-samples v2.4.9 测试网络、Node 22.19.0。工具和网络位于 `/opt/fairpass-dev`。Windows 的 `.wslconfig` 开启 mirrored 网络和 autoProxy；Docker 的代理配置位于 WSL `/etc/systemd/system/docker.service.d/fairpass-proxy.conf`。
+
+在仓库根目录的 PowerShell 启动：
+
+```powershell
+wsl.exe -d Ubuntu-22.04 -u root -- service docker start
+wsl.exe -d Ubuntu-22.04 -u root -- bash /mnt/c/Users/32349/fairpass/backend/scripts/start-real-wsl.sh
+```
+
+启动脚本创建缺失的网络和链码，自动同步后端源文件到 `/opt/fairpass-dev/backend`，安装 Linux 依赖、生成本地认证密钥和证书路径配置、幂等写入演示账号，然后监听 `http://127.0.0.1:3000`。SQLite 和 `.env` 留在 WSL 运行目录，重启服务会复用。不要在 Windows 和 WSL 共用同一个 node_modules；better-sqlite3 有平台原生依赖。
+
+另开 PowerShell，在 `frontend` 运行 `npm run dev`。本机 `.env.local` 已设置 `VITE_API_BASE_URL=http://127.0.0.1:3000/api/v1`。账号为上表中的五个演示账号。
+
+联通检查会创建一个仅存在于链上的检查活动，验证真实 commit 和同 ID 查询：
+
+```bash
+cd /opt/fairpass-dev/backend
+export PATH=/opt/fairpass-dev/node-v22.19.0-linux-x64/bin:$PATH
+npm run fabric:check
+npm run test:e2e:real
+```
+
+`test:e2e:real` 经 HTTP 创建完整活动，覆盖三学生报名、幂等重放、抽签、领票、票权转让、核销、历史和计数，并检查拒绝路径。必须出现真实 64 位 txId；Mock 模式不能通过。测试等待真实报名截止和活动开始，不修改时钟。检查活动和验收活动会保留用于核对。
+
+停止后端使用 Ctrl+C。暂停网络可在 WSL 执行：
+
+```bash
+cd /opt/fairpass-dev/fabric-samples/test-network
+DOCKER_SOCK=/var/run/docker.sock docker compose -f compose/compose-test-net.yaml -f compose/docker/docker-compose-test-net.yaml stop
+```
+
+重新运行启动脚本会恢复已有容器，复用账本和 SQLite。不要执行 `network.sh down`，它会删除账本；已有 SQLite 无法自动重建被清空的账本。链码变更后需按区块链 README 升级版本和 sequence；`.fairpass-deployed` 标记只用于初次启动，不负责升级。
 
 ## 目录
 

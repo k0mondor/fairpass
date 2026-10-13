@@ -92,6 +92,7 @@ const shutdown = () => {
   isShuttingDown = true;
 
   server.close((error) => {
+    gateway.close?.();
     database.close();
     if (error) {
       console.error("Failed to stop the HTTP server", error);

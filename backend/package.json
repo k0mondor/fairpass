@@ -11,11 +11,17 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "fabric:check": "tsx src/fabric/check-cli.ts",
+    "test:e2e:real": "node scripts/e2e-real.mjs",
+    "demo:campus": "node scripts/seed-campus-demo.mjs",
+    "demo:prepare": "node scripts/prepare-live-demo.mjs",
     "test": "vitest run --passWithNoTests",
     "db:migrate": "tsx src/db/migrate-cli.ts",
     "db:seed": "tsx src/db/seed-cli.ts"
   },
   "dependencies": {
+    "@grpc/grpc-js": "^1.14.6",
+    "@hyperledger/fabric-gateway": "^1.13.0",
     "better-sqlite3": "^13.0.3",
     "cors": "^2.8.6",
     "dotenv": "^18.0.4",

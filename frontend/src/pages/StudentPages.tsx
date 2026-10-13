@@ -433,6 +433,7 @@ export function TransferPanel({
   busy,
   error,
   recipient,
+  recipients,
   onRecipient,
   onClose,
   onSubmit,
@@ -443,6 +444,7 @@ export function TransferPanel({
   busy: boolean;
   error: string;
   recipient: string;
+  recipients?: { id: string; displayName: string }[];
   onRecipient: (value: string) => void;
   onClose: () => void;
   onSubmit: () => void;
@@ -473,14 +475,35 @@ export function TransferPanel({
         <p>
           将 <strong>{title}</strong> 的门票转让给另一位学生。
         </p>
-        <label htmlFor="recipient-id">接收方学生 ID</label>
-        <input
-          id="recipient-id"
-          value={recipient}
-          onChange={(event) => onRecipient(event.target.value)}
-          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-          autoFocus
-        />
+        <label htmlFor="recipient-id">
+          {recipients ? "接收方学生" : "接收方学生 ID"}
+        </label>
+        {recipients ? (
+          <select
+            id="recipient-id"
+            value={recipient}
+            onChange={(event) => onRecipient(event.target.value)}
+            disabled={busy}
+            autoFocus
+          >
+            <option value="" disabled>
+              选择接收方
+            </option>
+            {recipients.map((student) => (
+              <option key={student.id} value={student.id}>
+                {student.displayName}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            id="recipient-id"
+            value={recipient}
+            onChange={(event) => onRecipient(event.target.value)}
+            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+            autoFocus
+          />
+        )}
         <p className="transfer-note">
           {preview
             ? "这是界面预览。确认后不会改变门票归属。"
@@ -490,7 +513,12 @@ export function TransferPanel({
           <span>活动</span>
           <strong>{title}</strong>
           <span>接收方</span>
-          <code>{recipient || "请输入接收方 ID"}</code>
+          <strong>
+            {recipients?.find((student) => student.id === recipient)
+              ?.displayName ||
+              recipient ||
+              "请选择接收方"}
+          </strong>
           <span>门票</span>
           <code>{ticketId}</code>
         </div>

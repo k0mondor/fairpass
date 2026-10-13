@@ -1,0 +1,2 @@
+blockchain/chaincode/src/*.ts text eol=lf
+*.sh text eol=lf

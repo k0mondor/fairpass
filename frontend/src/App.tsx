@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { TicketStage } from "./components/TicketStage";
 import { InspectorWorkspace, OrganizerWorkspace } from "./pages/RolePages";
 import { QRCodeSVG } from "qrcode.react";
+import { demoStudents } from "./demo-accounts";
 import {
   ApplicationsPage,
   EventDetailPage,
@@ -31,6 +32,13 @@ import type {
 type Page = "events" | "event-detail" | "applications" | "tickets" | "incoming";
 const roleName = (role: Role) =>
   ({ STUDENT: "学生", ORGANIZER: "主办方", INSPECTOR: "验票员" })[role];
+// Explicitly enabled for the local demo; every switch still authenticates via the API.
+const demoRoleSwitch = import.meta.env.VITE_DEMO_ROLE_SWITCH === "true";
+const roleAccount: Record<Role, string> = {
+  STUDENT: "student1",
+  ORGANIZER: "organizer1",
+  INSPECTOR: "inspector1",
+};
 type Ticket = {
   id: string;
   category: string;
@@ -469,9 +477,21 @@ const previewRegistrations: Registration[] = previewEvents
     event,
   }));
 
-function displayTicket(record: ApiTicket, index: number): Ticket {
+function ticketDesign(title: string) {
+  return (
+    tickets.find((ticket) => ticket.title === title) ||
+    tickets[
+      Array.from(title).reduce(
+        (sum, character) => sum + character.charCodeAt(0),
+        0,
+      ) % tickets.length
+    ]
+  );
+}
+
+function displayTicket(record: ApiTicket): Ticket {
   const event = record.event;
-  const base = tickets[index % tickets.length];
+  const base = ticketDesign(event?.title || "校园门票");
   const start = event?.startAt ? new Date(event.startAt) : new Date();
   return {
     ...base,
@@ -482,14 +502,18 @@ function displayTicket(record: ApiTicket, index: number): Ticket {
     status: record.status,
     transferCount: record.transferCount,
     title: event?.title || "校园门票",
-    titleLines: (event?.title || "校园门票")
-      .split(" ")
-      .reduce<string[]>((lines, word) => {
-        const last = lines.length - 1;
-        if (last < 0 || lines[last].length + word.length > 17) lines.push(word);
-        else lines[last] += ` ${word}`;
-        return lines;
-      }, []),
+    titleLines:
+      event?.title === base.title
+        ? base.titleLines
+        : (event?.title || "校园门票")
+            .split(" ")
+            .reduce<string[]>((lines, word) => {
+              const last = lines.length - 1;
+              if (last < 0 || lines[last].length + word.length > 17)
+                lines.push(word);
+              else lines[last] += ` ${word}`;
+              return lines;
+            }, []),
     date: new Intl.DateTimeFormat("en", {
       month: "short",
       day: "2-digit",
@@ -507,6 +531,7 @@ function displayTicket(record: ApiTicket, index: number): Ticket {
 }
 
 function App() {
+  const refreshVersion = useRef(0);
   const [page, setPage] = useState<Page>("events");
   const [menuOpen, setMenuOpen] = useState(false);
   const [previewRole, setPreviewRole] = useState<Role>("STUDENT");
@@ -568,6 +593,7 @@ function App() {
     eventPage = eventsPage,
     registrationPage = applicationsPage,
   ) {
+    const version = ++refreshVersion.current;
     setLoading(true);
     setLoadError("");
     try {
@@ -576,34 +602,47 @@ function App() {
         studentApi.registrations(token, registrationPage),
         studentApi.tickets(token),
       ]);
+      if (version !== refreshVersion.current) return;
       setEvents(nextEvents.data);
       setEventsTotal(nextEvents.total);
       setRegistrations(nextRegistrations.data);
       setApplicationsTotal(nextRegistrations.total);
       setOwnedTickets(nextTickets.data);
     } catch (error) {
+      if (version !== refreshVersion.current) return;
       setLoadError(
         error instanceof Error ? error.message : "暂时无法加载最新信息。",
       );
     } finally {
-      setLoading(false);
+      if (version === refreshVersion.current) setLoading(false);
     }
   }
 
   useEffect(() => {
     if (!liveApiConfigured) return;
+    let cancelled = false;
     const token = savedToken();
-    if (!token) {
+    if (!token && !demoRoleSwitch) {
       setLoading(false);
       return;
     }
-    studentApi
-      .me(token)
-      .then((user) => setSession({ token, user }))
+    const restore = token
+      ? studentApi.me(token).then((user) => ({ token, user }))
+      : studentApi.login(roleAccount.STUDENT);
+    restore
+      .then((result) => {
+        if (cancelled) return;
+        saveToken(result.token);
+        setSession(result);
+      })
       .catch(() => {
+        if (cancelled) return;
         clearToken();
         setLoading(false);
       });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -614,32 +653,49 @@ function App() {
     window.scrollTo({ top: 0, behavior: "instant" });
   }, [page]);
 
-  async function login() {
+  function resetAccountData() {
+    refreshVersion.current++;
+    setEvents([]);
+    setRegistrations([]);
+    setOwnedTickets([]);
+    setEventsTotal(0);
+    setApplicationsTotal(0);
+    setEventsPage(1);
+    setApplicationsPage(1);
+    setSelectedEvent(null);
+    setOperations({});
+    setTransfer(null);
+    setRecipient("");
+    setNotice("");
+    setLoadError("");
+    setActionError("");
+    setPage("events");
+  }
+
+  async function login(nextAccount = account.trim()) {
+    if (busy) return;
     setBusy("login");
     setActionError("");
     try {
-      const result = await studentApi.login(account.trim());
+      const result = await studentApi.login(nextAccount);
+      resetAccountData();
       saveToken(result.token);
       setSession(result);
-      setPage("events");
+      setAccount(nextAccount);
+      setMenuOpen(false);
+      setLoading(result.user.role === "STUDENT");
+      window.scrollTo({ top: 0, behavior: "instant" });
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "登录失败。");
+      const message = error instanceof Error ? error.message : "登录失败。";
+      setActionError(message);
+      if (session) setNotice(message);
     } finally {
       setBusy(null);
     }
   }
 
   const artwork = (event: ApiEvent) => {
-    const position = events.findIndex((item) => item.id === event.id);
-    return (
-      <TicketArt
-        kind={
-          tickets[
-            (position < 0 ? event.title.length : position) % tickets.length
-          ].art
-        }
-      />
-    );
+    return <TicketArt kind={ticketDesign(event.title).art} />;
   };
 
   async function openEvent(id: string) {
@@ -837,7 +893,9 @@ function App() {
             aria-expanded={menuOpen}
             aria-label="账户菜单"
           >
-            账户{" "}
+            {demoRoleSwitch && session?.user.role === "STUDENT"
+              ? session.user.displayName
+              : "账户"}{" "}
             <span className="account-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none">
                 <circle
@@ -864,37 +922,67 @@ function App() {
           </button>
           {menuOpen && (
             <div className="account-menu">
-              <strong>{currentUser.displayName}</strong>
-              <small>
-                {preview
-                  ? "本地示例数据"
-                  : session?.user.role
-                    ? roleName(session.user.role)
-                    : "请登录"}
-              </small>
-              {preview && (
-                <div className="role-switch" aria-label="切换预览角色">
-                  <span>切换预览角色</span>
-                  {(["STUDENT", "ORGANIZER", "INSPECTOR"] as Role[]).map(
-                    (role) => (
+              {!demoRoleSwitch && (
+                <>
+                  <strong>{currentUser.displayName}</strong>
+                  <small>
+                    {preview
+                      ? "本地示例数据"
+                      : session?.user.role
+                        ? roleName(session.user.role)
+                        : "请登录"}
+                  </small>
+                </>
+              )}
+              {(preview || demoRoleSwitch) && (
+                <div className="role-switch" aria-label="切换角色">
+                  <span>{preview ? "切换预览角色" : "切换角色"}</span>
+                  {!preview &&
+                    demoRoleSwitch &&
+                    demoStudents.map((student) => (
                       <button
-                        key={role}
-                        className={role === currentRole ? "selected" : ""}
-                        onClick={() => switchPreviewRole(role)}
+                        key={student.id}
+                        className={
+                          student.id === currentUser.id ? "selected" : ""
+                        }
+                        aria-pressed={student.id === currentUser.id}
+                        disabled={Boolean(busy)}
+                        onClick={() => void login(student.account)}
                       >
-                        {roleName(role)}
+                        {student.displayName}
                       </button>
-                    ),
-                  )}
+                    ))}
+                  {(
+                    (!preview && demoRoleSwitch
+                      ? ["ORGANIZER", "INSPECTOR"]
+                      : ["STUDENT", "ORGANIZER", "INSPECTOR"]) as Role[]
+                  ).map((role) => (
+                    <button
+                      key={role}
+                      className={role === currentRole ? "selected" : ""}
+                      aria-pressed={role === currentRole}
+                      disabled={busy === "login"}
+                      onClick={() =>
+                        preview
+                          ? switchPreviewRole(role)
+                          : void login(roleAccount[role])
+                      }
+                    >
+                      {roleName(role)}
+                    </button>
+                  ))}
                 </div>
               )}
-              {session && (
+              {session && !demoRoleSwitch && (
                 <button
+                  className="account-logout"
+                  disabled={busy === "login"}
                   onClick={() => {
                     clearToken();
+                    resetAccountData();
                     setSession(null);
                     setMenuOpen(false);
-                    setPage("events");
+                    setLoading(false);
                   }}
                 >
                   退出登录
@@ -916,23 +1004,54 @@ function App() {
               <h1>
                 Make room for <em>your next event.</em>
               </h1>
-              <p>输入后端提供的测试账号，进入相应角色的工作界面。</p>
-              <label htmlFor="demo-account">测试账号</label>
-              <input
-                id="demo-account"
-                value={account}
-                onChange={(event) => setAccount(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") void login();
-                }}
-              />
-              <button
-                className="blue-action"
-                disabled={busy === "login"}
-                onClick={() => void login()}
-              >
-                {busy === "login" ? "正在登录…" : "继续 →"}
-              </button>
+              <p>
+                {demoRoleSwitch
+                  ? "选择你的角色，继续探索校园里的好活动。"
+                  : "使用你的账号，进入校园活动与门票空间。"}
+              </p>
+              {demoRoleSwitch && (
+                <div className="login-roles" aria-label="选择角色">
+                  {(["STUDENT", "ORGANIZER", "INSPECTOR"] as Role[]).map(
+                    (role) => (
+                      <button
+                        key={role}
+                        className="login-role"
+                        disabled={busy === "login"}
+                        onClick={() => void login(roleAccount[role])}
+                      >
+                        <strong>{roleName(role)}</strong>
+                        <span>
+                          {role === "STUDENT"
+                            ? "发现活动，收藏门票"
+                            : role === "ORGANIZER"
+                              ? "发布活动，管理报名"
+                              : "核对门票，迎接入场"}
+                        </span>
+                        <span aria-hidden="true">↗</span>
+                      </button>
+                    ),
+                  )}
+                </div>
+              )}
+              <details className="account-signin" open={!demoRoleSwitch}>
+                <summary>使用其他账号</summary>
+                <label htmlFor="demo-account">账号</label>
+                <input
+                  id="demo-account"
+                  value={account}
+                  onChange={(event) => setAccount(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void login();
+                  }}
+                />
+                <button
+                  className="blue-action"
+                  disabled={busy === "login"}
+                  onClick={() => void login()}
+                >
+                  {busy === "login" ? "正在登录…" : "继续 →"}
+                </button>
+              </details>
               {actionError && (
                 <p className="form-error" role="alert">
                   {actionError}
@@ -1007,6 +1126,7 @@ function App() {
         ) : shownTickets.length ? (
           <>
             <TicketStage
+              key={currentUser.id}
               tickets={shownTickets}
               front={(ticket) => <TicketFront ticket={ticket} />}
               back={(ticket, onClose) => (
@@ -1017,18 +1137,20 @@ function App() {
                   operations={operations[ticket.id] || []}
                   onTransfer={(record) => {
                     setActionError("");
+                    setRecipient(
+                      demoRoleSwitch
+                        ? demoStudents.find(
+                            (student) => student.id !== currentUser.id,
+                          )?.id || ""
+                        : "",
+                    );
                     setTransfer(record);
                   }}
                 />
               )}
               onOpen={(ticket) => void openTicketRecord(ticket)}
+              onIncoming={() => setPage("incoming")}
             />
-            <button
-              className="incoming-entry"
-              onClick={() => setPage("incoming")}
-            >
-              待接收门票 ↗
-            </button>
           </>
         ) : (
           <section className="ticket-empty">
@@ -1053,6 +1175,11 @@ function App() {
           busy={busy === "transfer"}
           error={actionError}
           recipient={recipient}
+          recipients={
+            demoRoleSwitch && !preview
+              ? demoStudents.filter((student) => student.id !== currentUser.id)
+              : undefined
+          }
           onRecipient={setRecipient}
           onClose={() => setTransfer(null)}
           onSubmit={() => void submitTransfer()}
