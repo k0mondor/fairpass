@@ -123,9 +123,8 @@ const createContext = async (): Promise<TestContext> => {
 
   const auth = new AuthService(
     users,
-    new DemoTokenService(
-      authConfig,
-      () => Math.floor(clock.now.getTime() / 1000),
+    new DemoTokenService(authConfig, () =>
+      Math.floor(clock.now.getTime() / 1000),
     ),
   );
   const ledger = new GatewayLedgerReadService(gateway);
@@ -184,10 +183,22 @@ const createContext = async (): Promise<TestContext> => {
   };
 };
 
-const login = async (context: TestContext, account: string): Promise<string> => {
+const login = async (
+  context: TestContext,
+  account: string,
+): Promise<string> => {
   const response = await request(context.app)
     .post("/api/v1/auth/demo-login")
-    .send({ account });
+    .send({
+      account,
+      password: "123456",
+      role:
+        account === "morgan" || account.startsWith("organizer")
+          ? "ORGANIZER"
+          : account === "taylor"
+            ? "INSPECTOR"
+            : "STUDENT",
+    });
   expect(response.status).toBe(200);
   return response.body.data.token as string;
 };
@@ -217,7 +228,14 @@ const transfer = (
   request(context.app)
     .post(`/api/v1/tickets/${ticketId}/transfer`)
     .set("Authorization", `Bearer ${token}`)
-    .send({ toUserId });
+    .send({
+      toAccount:
+        (
+          context.database
+            .prepare("SELECT account FROM users WHERE id = ?")
+            .get(toUserId) as { account: string } | undefined
+        )?.account ?? "unknown-account",
+    });
 
 const redeem = (context: TestContext, token: string, ticketId: string) =>
   request(context.app)
@@ -225,11 +243,7 @@ const redeem = (context: TestContext, token: string, ticketId: string) =>
     .set("Authorization", `Bearer ${token}`)
     .send({});
 
-const eventOperations = (
-  context: TestContext,
-  token: string,
-  query = "",
-) =>
+const eventOperations = (context: TestContext, token: string, query = "") =>
   request(context.app)
     .get(`/api/v1/events/${eventId}/operations${query}`)
     .set("Authorization", `Bearer ${token}`);
@@ -256,11 +270,88 @@ afterEach(() => {
 });
 
 describe("G1 ticket claim", () => {
+  it("resolves a typed username case-insensitively and transfers to its stable user ID", async () => {
+    const context = await createContext();
+    const owner = await login(context, "jamie");
+    const claimed = await claim(context, owner);
+    const response = await request(context.app)
+      .post(`/api/v1/tickets/${claimed.body.data.id}/transfer`)
+      .set("Authorization", `Bearer ${owner}`)
+      .send({ toAccount: " ALEX " });
+    expect(response.status).toBe(200);
+    expect(response.body.data.ownerId).toBe(studentIds.loser);
+    expect(response.body.data.transferCount).toBe(1);
+  });
+
+  it("rejects typed self, unknown and non-student accounts without transferring the ticket", async () => {
+    const context = await createContext();
+    const owner = await login(context, "jamie");
+    const claimed = await claim(context, owner);
+    for (const toAccount of ["JAMIE", "no-such-student", "morgan", "taylor"]) {
+      const response = await request(context.app)
+        .post(`/api/v1/tickets/${claimed.body.data.id}/transfer`)
+        .set("Authorization", `Bearer ${owner}`)
+        .send({ toAccount });
+      expect(response.status).toBe(409);
+      expect(response.body.error.code).toBe("INVALID_RECIPIENT");
+    }
+    const unchanged = await getTicket(context, owner, claimed.body.data.id);
+    expect(unchanged.body.data.ownerId).toBe(studentIds.winner);
+    expect(unchanged.body.data.transferCount).toBe(0);
+  });
+  it("keeps claimed status after transfer, in both registration list and detail", async () => {
+    const context = await createContext();
+    const winner = await login(context, "jamie");
+    const before = await request(context.app)
+      .get("/api/v1/me/registrations")
+      .set("Authorization", `Bearer ${winner}`);
+    expect(
+      before.body.data.find(
+        (row: { eventId: string }) => row.eventId === eventId,
+      ).ticketClaimed,
+    ).toBe(false);
+    const claimed = await claim(context, winner);
+    expect(claimed.status).toBe(201);
+    const moved = await transfer(
+      context,
+      winner,
+      claimed.body.data.id,
+      studentIds.loser,
+    );
+    expect(moved.status).toBe(200);
+    const detail = await request(context.app)
+      .get(`/api/v1/events/${eventId}`)
+      .set("Authorization", `Bearer ${winner}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.data.myTicket).toBeNull();
+    expect(detail.body.data.myTicketClaimed).toBe(true);
+    const list = await request(context.app)
+      .get("/api/v1/me/registrations")
+      .set("Authorization", `Bearer ${winner}`);
+    expect(
+      list.body.data.find((row: { eventId: string }) => row.eventId === eventId)
+        .ticketClaimed,
+    ).toBe(true);
+    expect((await claim(context, winner)).body.error.code).toBe(
+      "ALREADY_CLAIMED",
+    );
+  });
+
+  it("does not report unclaimed when the claim-status ledger query is unavailable", async () => {
+    const context = await createContext();
+    const winner = await login(context, "jamie");
+    context.gateway.queueFault("GetTicket", { kind: "NETWORK" });
+    const list = await request(context.app)
+      .get("/api/v1/me/registrations")
+      .set("Authorization", `Bearer ${winner}`);
+    expect(list.status).toBe(503);
+  });
+
   it("claims only for a confirmed winner and rejects duplicate and wrong-role requests", async () => {
     const context = await createContext();
-    const winner = await login(context, "student2");
-    const loser = await login(context, "student1");
-    const organizer = await login(context, "organizer1");
+    const winner = await login(context, "jamie");
+    const loser = await login(context, "alex");
+    const organizer = await login(context, "morgan");
 
     expect((await claim(context, organizer)).status).toBe(403);
 
@@ -294,7 +385,7 @@ describe("G1 ticket claim", () => {
   it("rejects claims at the exact start boundary and unknown events", async () => {
     const context = await createContext();
     context.clock.now = new Date(startAt);
-    const winner = await login(context, "student3");
+    const winner = await login(context, "casey");
 
     const closed = await claim(context, winner);
     expect(closed.status).toBe(422);
@@ -310,8 +401,10 @@ describe("G1 ticket claim", () => {
 
   it("reconciles commit-unknown and retries a confirmed pre-submit failure safely", async () => {
     const unknownContext = await createContext();
-    unknownContext.gateway.queueFault("ClaimTicket", { kind: "COMMIT_UNKNOWN" });
-    const winner = await login(unknownContext, "student2");
+    unknownContext.gateway.queueFault("ClaimTicket", {
+      kind: "COMMIT_UNKNOWN",
+    });
+    const winner = await login(unknownContext, "jamie");
 
     const reconciled = await claim(unknownContext, winner);
     expect(reconciled.status).toBe(201);
@@ -320,7 +413,7 @@ describe("G1 ticket claim", () => {
 
     const retryContext = await createContext();
     retryContext.gateway.queueFault("ClaimTicket", { kind: "NETWORK" });
-    const otherWinner = await login(retryContext, "student3");
+    const otherWinner = await login(retryContext, "casey");
     const retried = await claim(retryContext, otherWinner);
     expect(retried.status).toBe(201);
     expect(retried.body.data.id).toBe(ticketIdFor(studentIds.otherWinner));
@@ -331,13 +424,17 @@ describe("G1 ticket claim", () => {
 describe("G2 ticket queries", () => {
   it("paginates the current owner's tickets and attaches complete events", async () => {
     const context = await createContext();
-    const firstWinner = await login(context, "student2");
-    const secondWinner = await login(context, "student3");
+    const firstWinner = await login(context, "jamie");
+    const secondWinner = await login(context, "casey");
     await claim(context, firstWinner);
     context.clock.now = new Date("2026-09-29T03:00:00.000Z");
     await claim(context, secondWinner);
 
-    const firstPage = await listTickets(context, secondWinner, "?page=1&pageSize=1");
+    const firstPage = await listTickets(
+      context,
+      secondWinner,
+      "?page=1&pageSize=1",
+    );
     expect(firstPage.status).toBe(200);
     expect(firstPage.body).toMatchObject({ page: 1, pageSize: 1, total: 1 });
     expect(firstPage.body.data[0]).toMatchObject({
@@ -353,22 +450,28 @@ describe("G2 ticket queries", () => {
       },
     });
 
-    const emptyPage = await listTickets(context, secondWinner, "?page=2&pageSize=1");
+    const emptyPage = await listTickets(
+      context,
+      secondWinner,
+      "?page=2&pageSize=1",
+    );
     expect(emptyPage.body).toMatchObject({ page: 2, pageSize: 1, total: 1 });
     expect(emptyPage.body.data).toEqual([]);
 
-    const organizer = await login(context, "organizer1");
+    const organizer = await login(context, "morgan");
     expect((await listTickets(context, organizer)).status).toBe(403);
-    expect((await listTickets(context, secondWinner, "?page=0")).status).toBe(400);
+    expect((await listTickets(context, secondWinner, "?page=0")).status).toBe(
+      400,
+    );
   });
 
   it("allows only the current owner, event organizer, and inspectors to read details", async () => {
     const context = await createContext();
-    const owner = await login(context, "student2");
-    const otherStudent = await login(context, "student1");
-    const organizer = await login(context, "organizer1");
+    const owner = await login(context, "jamie");
+    const otherStudent = await login(context, "alex");
+    const organizer = await login(context, "morgan");
     const otherOrganizer = await login(context, "organizer2");
-    const inspector = await login(context, "inspector1");
+    const inspector = await login(context, "taylor");
     const claimed = await claim(context, owner);
     const ticketId = claimed.body.data.id as string;
 
@@ -382,15 +485,17 @@ describe("G2 ticket queries", () => {
       });
     }
     expect((await getTicket(context, otherStudent, ticketId)).status).toBe(403);
-    expect((await getTicket(context, otherOrganizer, ticketId)).status).toBe(403);
+    expect((await getTicket(context, otherOrganizer, ticketId)).status).toBe(
+      403,
+    );
     expect((await getTicket(context, owner, "not-a-ticket")).status).toBe(400);
     expect((await getTicket(context, owner, "f".repeat(64))).status).toBe(404);
   });
 
   it("reads ownership from the Gateway index after a transfer", async () => {
     const context = await createContext();
-    const originalOwner = await login(context, "student2");
-    const recipient = await login(context, "student1");
+    const originalOwner = await login(context, "jamie");
+    const recipient = await login(context, "alex");
     const claimed = await claim(context, originalOwner);
     const ticketId = claimed.body.data.id as string;
 
@@ -402,7 +507,9 @@ describe("G2 ticket queries", () => {
 
     const originalList = await listTickets(context, originalOwner);
     expect(originalList.body).toMatchObject({ data: [], total: 0 });
-    expect((await getTicket(context, originalOwner, ticketId)).status).toBe(403);
+    expect((await getTicket(context, originalOwner, ticketId)).status).toBe(
+      403,
+    );
 
     const recipientList = await listTickets(context, recipient);
     expect(recipientList.body.total).toBe(1);
@@ -418,7 +525,7 @@ describe("G2 ticket queries", () => {
   it("returns 503 instead of stale local data when the owner index is unavailable", async () => {
     const context = await createContext();
     context.gateway.queueFault("GetTicketsByOwner", { kind: "NETWORK" });
-    const student = await login(context, "student2");
+    const student = await login(context, "jamie");
 
     const response = await listTickets(context, student);
     expect(response.status).toBe(503);
@@ -429,17 +536,12 @@ describe("G2 ticket queries", () => {
 describe("G3 ticket transfer", () => {
   it("transfers to another student and immediately updates owner visibility", async () => {
     const context = await createContext();
-    const owner = await login(context, "student2");
-    const recipient = await login(context, "student1");
+    const owner = await login(context, "jamie");
+    const recipient = await login(context, "alex");
     const claimed = await claim(context, owner);
     const ticketId = claimed.body.data.id as string;
 
-    const response = await transfer(
-      context,
-      owner,
-      ticketId,
-      studentIds.loser,
-    );
+    const response = await transfer(context, owner, ticketId, studentIds.loser);
     expect(response.status).toBe(200);
     expect(response.body.data).toMatchObject({
       id: ticketId,
@@ -478,9 +580,9 @@ describe("G3 ticket transfer", () => {
 
   it("rejects wrong roles, non-owners, self, non-students, and unknown recipients", async () => {
     const context = await createContext();
-    const owner = await login(context, "student2");
-    const otherStudent = await login(context, "student1");
-    const organizer = await login(context, "organizer1");
+    const owner = await login(context, "jamie");
+    const otherStudent = await login(context, "alex");
+    const organizer = await login(context, "morgan");
     const claimed = await claim(context, owner);
     const ticketId = claimed.body.data.id as string;
 
@@ -512,24 +614,25 @@ describe("G3 ticket transfer", () => {
       expect(rejected.body.error.code).toBe("INVALID_RECIPIENT");
     }
 
-    expect((await transfer(context, owner, ticketId, "bad-id")).status).toBe(400);
+    expect(
+      (
+        await request(context.app)
+          .post(`/api/v1/tickets/${ticketId}/transfer`)
+          .set("Authorization", `Bearer ${owner}`)
+          .send({ toAccount: "bad account" })
+      ).status,
+    ).toBe(400);
   });
 
   it("rejects a second transfer and transfers at the exact start boundary", async () => {
     const transferredContext = await createContext();
-    const owner = await login(transferredContext, "student2");
-    const recipient = await login(transferredContext, "student1");
+    const owner = await login(transferredContext, "jamie");
+    const recipient = await login(transferredContext, "alex");
     const claimed = await claim(transferredContext, owner);
     const ticketId = claimed.body.data.id as string;
     expect(
-      (
-        await transfer(
-          transferredContext,
-          owner,
-          ticketId,
-          studentIds.loser,
-        )
-      ).status,
+      (await transfer(transferredContext, owner, ticketId, studentIds.loser))
+        .status,
     ).toBe(200);
 
     const secondTransfer = await transfer(
@@ -542,7 +645,7 @@ describe("G3 ticket transfer", () => {
     expect(secondTransfer.body.error.code).toBe("TRANSFER_LIMIT_REACHED");
 
     const closedContext = await createContext();
-    const boundaryOwner = await login(closedContext, "student2");
+    const boundaryOwner = await login(closedContext, "jamie");
     const boundaryClaim = await claim(closedContext, boundaryOwner);
     closedContext.clock.now = new Date(startAt);
     const closed = await transfer(
@@ -557,7 +660,7 @@ describe("G3 ticket transfer", () => {
 
   it("reconciles commit-unknown and retries one pre-submit network failure", async () => {
     const unknownContext = await createContext();
-    const owner = await login(unknownContext, "student2");
+    const owner = await login(unknownContext, "jamie");
     const claimed = await claim(unknownContext, owner);
     unknownContext.gateway.queueFault("TransferTicket", {
       kind: "COMMIT_UNKNOWN",
@@ -580,7 +683,7 @@ describe("G3 ticket transfer", () => {
     ).toHaveLength(1);
 
     const retryContext = await createContext();
-    const retryOwner = await login(retryContext, "student2");
+    const retryOwner = await login(retryContext, "jamie");
     const retryClaim = await claim(retryContext, retryOwner);
     retryContext.gateway.queueFault("TransferTicket", { kind: "NETWORK" });
     const retried = await transfer(
@@ -600,10 +703,29 @@ describe("G3 ticket transfer", () => {
 });
 
 describe("G4 and G5 ticket redemption", () => {
+  it("opens check-in exactly 30 minutes before the event and disallows moving a redeemed ticket", async () => {
+    const context = await createContext();
+    const owner = await login(context, "jamie");
+    const inspector = await login(context, "taylor");
+    const claimed = await claim(context, owner);
+    const ticketId = claimed.body.data.id;
+    context.clock.now = new Date(Date.parse(startAt) - 30 * 60_000 - 1);
+    expect((await redeem(context, inspector, ticketId)).body.error.code).toBe(
+      "CHECKIN_CLOSED",
+    );
+    context.clock.now = new Date(Date.parse(startAt) - 30 * 60_000);
+    const admitted = await redeem(context, inspector, ticketId);
+    expect(admitted.status).toBe(200);
+    expect(admitted.body.data.ticket.status).toBe("REDEEMED");
+    expect(
+      (await transfer(context, owner, ticketId, studentIds.loser)).body.error
+        .code,
+    ).toBe("ALREADY_REDEEMED");
+  });
   it("enforces the inspector role and the half-open check-in window", async () => {
     const context = await createContext();
-    const owner = await login(context, "student2");
-    const inspector = await login(context, "inspector1");
+    const owner = await login(context, "jamie");
+    const inspector = await login(context, "taylor");
     const claimed = await claim(context, owner);
     const ticketId = claimed.body.data.id as string;
 
@@ -620,9 +742,9 @@ describe("G4 and G5 ticket redemption", () => {
 
   it("redeems at the exact start with the operation from that confirmed transaction", async () => {
     const context = await createContext();
-    const owner = await login(context, "student2");
-    const recipient = await login(context, "student1");
-    const inspector = await login(context, "inspector1");
+    const owner = await login(context, "jamie");
+    const recipient = await login(context, "alex");
+    const inspector = await login(context, "taylor");
     const claimed = await claim(context, owner);
     const ticketId = claimed.body.data.id as string;
     expect(
@@ -682,8 +804,8 @@ describe("G4 and G5 ticket redemption", () => {
   it("reconciles commit-unknown by exact txId and safely retries a network failure", async () => {
     for (const fault of ["COMMIT_UNKNOWN", "NETWORK"] as const) {
       const context = await createContext();
-      const owner = await login(context, "student2");
-      const inspector = await login(context, "inspector1");
+      const owner = await login(context, "jamie");
+      const inspector = await login(context, "taylor");
       const claimed = await claim(context, owner);
       const ticketId = claimed.body.data.id as string;
       context.clock.now = new Date(startAt);
@@ -711,11 +833,11 @@ describe("G4 and G5 ticket redemption", () => {
 describe("H confirmed operation history", () => {
   it("paginates, filters, validates, and sorts the organizer's event history", async () => {
     const context = await createContext();
-    const owner = await login(context, "student2");
-    const organizer = await login(context, "organizer1");
+    const owner = await login(context, "jamie");
+    const organizer = await login(context, "morgan");
     const otherOrganizer = await login(context, "organizer2");
-    const student = await login(context, "student1");
-    const inspector = await login(context, "inspector1");
+    const student = await login(context, "alex");
+    const inspector = await login(context, "taylor");
     const claimed = await claim(context, owner);
     const ticketId = claimed.body.data.id as string;
     await transfer(context, owner, ticketId, studentIds.loser);
@@ -729,7 +851,9 @@ describe("H confirmed operation history", () => {
     );
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({ page: 1, pageSize: 100, total: 5 });
-    expect(response.body.data.map(({ type }: { type: string }) => type)).toEqual(
+    expect(
+      response.body.data.map(({ type }: { type: string }) => type),
+    ).toEqual(
       expect.arrayContaining([
         "EVENT_CREATED",
         "DRAW_PUBLISHED",
@@ -785,11 +909,11 @@ describe("H confirmed operation history", () => {
 
   it("returns only ticket operations to the current authorized viewers", async () => {
     const context = await createContext();
-    const originalOwner = await login(context, "student2");
-    const currentOwner = await login(context, "student1");
-    const organizer = await login(context, "organizer1");
+    const originalOwner = await login(context, "jamie");
+    const currentOwner = await login(context, "alex");
+    const organizer = await login(context, "morgan");
     const otherOrganizer = await login(context, "organizer2");
-    const inspector = await login(context, "inspector1");
+    const inspector = await login(context, "taylor");
     const claimed = await claim(context, originalOwner);
     const ticketId = claimed.body.data.id as string;
     await transfer(context, originalOwner, ticketId, studentIds.loser);
@@ -839,9 +963,9 @@ describe("H confirmed operation history", () => {
     expect((await ticketHistory(context, originalOwner, ticketId)).status).toBe(
       403,
     );
-    expect((await ticketHistory(context, otherOrganizer, ticketId)).status).toBe(
-      403,
-    );
+    expect(
+      (await ticketHistory(context, otherOrganizer, ticketId)).status,
+    ).toBe(403);
     const missing = await ticketHistory(context, inspector, "f".repeat(64));
     expect(missing.status).toBe(404);
     expect(missing.body.error.code).toBe("NOT_FOUND");
@@ -849,8 +973,8 @@ describe("H confirmed operation history", () => {
 
   it("returns 503 instead of cached history when operation queries fail", async () => {
     const context = await createContext();
-    const owner = await login(context, "student2");
-    const organizer = await login(context, "organizer1");
+    const owner = await login(context, "jamie");
+    const organizer = await login(context, "morgan");
     const claimed = await claim(context, owner);
     const ticketId = claimed.body.data.id as string;
 

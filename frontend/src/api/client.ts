@@ -1,3 +1,5 @@
+export const CHECKIN_LEAD_MS = 30 * 60 * 1000;
+
 // All role pages speak only the v1 HTTP contract. Preview data stays in UI modules.
 export type Role = "STUDENT" | "ORGANIZER" | "INSPECTOR";
 export type EventStatus = "OPEN" | "DRAWING" | "DRAWN" | "FINISHED";
@@ -33,6 +35,7 @@ export interface Event {
   createdAt: string;
 }
 export interface Registration {
+  ticketClaimed?: boolean; // Present on GET /me/registrations.
   id: string;
   eventId: string;
   userId: string;
@@ -66,6 +69,7 @@ export interface Operation {
   blockNumber: number | null;
 }
 export interface EventDetail extends Event {
+  myTicketClaimed: boolean;
   myRegistration: Registration | null;
   myTicket: Ticket | null;
 }
@@ -86,8 +90,11 @@ export class ApiError extends Error {
 }
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "/api/v1";
+export const READ_TIMEOUT_MS = 12_000;
+// Allow endorsement, commit confirmation and server-side reconciliation.
+export const WRITE_TIMEOUT_MS = 180_000;
 export const liveApiConfigured = Boolean(import.meta.env.VITE_API_BASE_URL);
-const tokenKey = "fairpass.demo.token";
+const tokenKey = "fairpass.login.token.v2";
 export const savedToken = () => sessionStorage.getItem(tokenKey);
 export const saveToken = (token: string) =>
   sessionStorage.setItem(tokenKey, token);
@@ -99,7 +106,11 @@ async function request<T>(
   options: RequestInit = {},
 ): Promise<T> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 12000);
+  const isWrite = options.method === "POST" && path !== "/auth/demo-login";
+  const timeout = window.setTimeout(
+    () => controller.abort(),
+    isWrite ? WRITE_TIMEOUT_MS : READ_TIMEOUT_MS,
+  );
   try {
     const response = await fetch(`${apiBase}${path}`, {
       ...options,
@@ -123,8 +134,12 @@ async function request<T>(
     if (error instanceof ApiError) throw error;
     throw new ApiError(
       controller.signal.aborted
-        ? "请求超时，请先刷新当前状态，再决定是否重试。"
-        : "暂时无法连接服务，请检查网络后重试。",
+        ? isWrite
+          ? "交易确认超时，结果尚未确定。请先查询当前状态，勿重复提交。"
+          : "查询超时，请重试。"
+        : isWrite
+          ? "连接中断，交易结果尚未确定。请先查询当前状态，勿重复提交。"
+          : "暂时无法连接服务，请检查网络后重试。",
       controller.signal.aborted ? "TIMEOUT" : "NETWORK_ERROR",
       0,
     );
@@ -139,13 +154,13 @@ const list = <T>(path: string, token: string) =>
   request<PageResult<T>>(path, token);
 
 export const studentApi = {
-  login: (account: string) =>
+  login: (account: string, password: string, role: Role) =>
     request<{ data: { token: string; user: User } }>(
       "/auth/demo-login",
       undefined,
       {
         method: "POST",
-        body: JSON.stringify({ account }),
+        body: JSON.stringify({ account, password, role }),
       },
     ).then((body) => body.data),
   me: (token: string) => one<User>("/auth/me", token),
@@ -157,6 +172,19 @@ export const studentApi = {
     list<Registration>(`/me/registrations?page=${page}&pageSize=20`, token),
   tickets: (token: string, page = 1) =>
     list<Ticket>(`/me/tickets?page=${page}&pageSize=20`, token),
+  allTickets: async (token: string): Promise<Ticket[]> => {
+    const tickets = new Map<string, Ticket>();
+    let page = 1;
+    for (;;) {
+      const result = await studentApi.tickets(token, page);
+      for (const ticket of result.data) tickets.set(ticket.id, ticket);
+      if (result.page * result.pageSize >= result.total)
+        return [...tickets.values()];
+      if (!result.data.length)
+        throw new Error("门票列表发生变化，请刷新后重试。");
+      page++;
+    }
+  },
   register: (token: string, id: string) =>
     one<Registration>(
       `/events/${encodeURIComponent(id)}/registrations`,
@@ -171,10 +199,10 @@ export const studentApi = {
       method: "POST",
       body: "{}",
     }),
-  transfer: (token: string, id: string, toUserId: string) =>
+  transfer: (token: string, id: string, toAccount: string) =>
     one<Ticket>(`/tickets/${encodeURIComponent(id)}/transfer`, token, {
       method: "POST",
-      body: JSON.stringify({ toUserId }),
+      body: JSON.stringify({ toAccount }),
     }),
   operations: (token: string, id: string, page = 1) =>
     list<Operation>(

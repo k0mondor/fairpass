@@ -1,6 +1,8 @@
 import { createPrivateKey } from "node:crypto";
 import { readFileSync } from "node:fs";
 
+import { common } from "@hyperledger/fabric-protos";
+
 import { Client, credentials, status as grpcStatus } from "@grpc/grpc-js";
 import {
   connect,
@@ -21,6 +23,7 @@ import type {
 
 export interface FabricConnection {
   contract: Pick<Contract, "evaluateTransaction" | "newProposal">;
+  queryBlockByTxId(txId: string): Promise<Uint8Array>;
   close(): void;
 }
 
@@ -55,6 +58,10 @@ export function openFabricConnection(config: FabricConfig): FabricConnection {
       contract: gateway
         .getNetwork(config.channelName)
         .getContract(config.chaincodeName),
+      queryBlockByTxId(txId) {
+        return gateway.getNetwork(config.channelName).getContract("qscc")
+          .evaluateTransaction("GetBlockByTxID", config.channelName, txId);
+      },
       close() {
         gateway.close();
         client.close();
@@ -69,6 +76,7 @@ export function openFabricConnection(config: FabricConfig): FabricConnection {
 export class RealGatewayAdapter implements GatewayAdapter {
   readonly mode = "fabric" as const;
   private connection: FabricConnection | undefined;
+  private readonly blockNumbers = new Map<string, number>();
 
   constructor(
     private readonly config: FabricConfig,
@@ -99,7 +107,20 @@ export class RealGatewayAdapter implements GatewayAdapter {
       ) {
         if (!Array.isArray(result))
           throw new Error("Fabric history must be an array");
-        return result.map((operation) => this.operation(operation, null)) as T;
+        return await Promise.all(result.map(async (operation) => {
+          const txId = operation?.txId;
+          if (typeof txId !== "string" || !txId) throw new Error("Missing history transaction ID");
+          let blockNumber = this.blockNumbers.get(txId);
+          if (blockNumber === undefined) {
+            const block = common.Block.deserializeBinary(await this.connection!.queryBlockByTxId(txId));
+            blockNumber = block.getHeader()?.getNumber();
+            if (blockNumber === undefined || !Number.isSafeInteger(blockNumber) || blockNumber < 0)
+              throw new Error("Invalid Fabric block number");
+            if (this.blockNumbers.size >= 5000) this.blockNumbers.clear();
+            this.blockNumbers.set(txId, blockNumber);
+          }
+          return this.operation(operation, blockNumber);
+        })) as T;
       }
       return result as T;
     } catch (error) {
@@ -132,6 +153,7 @@ export class RealGatewayAdapter implements GatewayAdapter {
         status.blockNumber <= BigInt(Number.MAX_SAFE_INTEGER)
           ? Number(status.blockNumber)
           : null;
+      if (blockNumber !== null) this.blockNumbers.set(txId, blockNumber);
       const result = this.decode<T>(transaction.getResult());
       const isEvent = method === "CreateEvent" || method === "PublishDraw";
       const ticketId =

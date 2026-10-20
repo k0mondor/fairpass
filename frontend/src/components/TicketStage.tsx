@@ -86,13 +86,11 @@ export function TicketStage<T extends TicketIdentity>({
   front,
   back,
   onOpen,
-  onIncoming,
 }: {
   tickets: T[];
   front: (ticket: T) => ReactNode;
   back: (ticket: T, close: () => void) => ReactNode;
   onOpen?: (ticket: T) => void;
-  onIncoming?: () => void;
 }) {
   const [view, setView] = useState<"stack" | "grid">("stack");
   const [active, setActive] = useState(0);
@@ -823,11 +821,6 @@ export function TicketStage<T extends TicketIdentity>({
           </div>
           <div className="stage-footer">
             <span>FAIRPASS / CAMPUS EXPERIENCES</span>
-            {onIncoming && (
-              <button className="incoming-entry" onClick={onIncoming}>
-                待接收门票 ↗
-              </button>
-            )}
             <span aria-live="polite">
               {String(active + 1).padStart(2, "0")} /{" "}
               {String(tickets.length).padStart(2, "0")}

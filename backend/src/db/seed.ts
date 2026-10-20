@@ -11,32 +11,32 @@ export interface DemoUserSeed {
 export const demoUsers: readonly DemoUserSeed[] = [
   {
     id: "11111111-1111-4111-8111-111111111111",
-    account: "student1",
-    displayName: "学生一",
+    account: "alex",
+    displayName: "alex",
     role: "STUDENT",
   },
   {
     id: "22222222-2222-4222-8222-222222222222",
-    account: "student2",
-    displayName: "学生二",
+    account: "jamie",
+    displayName: "jamie",
     role: "STUDENT",
   },
   {
     id: "33333333-3333-4333-8333-333333333333",
-    account: "student3",
-    displayName: "学生三",
+    account: "casey",
+    displayName: "casey",
     role: "STUDENT",
   },
   {
     id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-    account: "organizer1",
-    displayName: "主办方一",
+    account: "morgan",
+    displayName: "morgan",
     role: "ORGANIZER",
   },
   {
     id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-    account: "inspector1",
-    displayName: "检票员一",
+    account: "taylor",
+    displayName: "taylor",
     role: "INSPECTOR",
   },
 ];

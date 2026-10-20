@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
+import { LoginPage } from "./pages/LoginPage";
+import { TransactionPending } from "./components/TransactionPending";
 import { TicketStage } from "./components/TicketStage";
 import { InspectorWorkspace, OrganizerWorkspace } from "./pages/RolePages";
 import { QRCodeSVG } from "qrcode.react";
-import { demoStudents } from "./demo-accounts";
 import {
   ApplicationsPage,
   EventDetailPage,
   EventsPage,
-  IncomingTransfersPage,
   OperationTimeline,
   TransferPanel,
 } from "./pages/StudentPages";
@@ -29,16 +29,9 @@ import type {
   Role,
 } from "./api/client";
 
-type Page = "events" | "event-detail" | "applications" | "tickets" | "incoming";
+type Page = "events" | "event-detail" | "applications" | "tickets";
 const roleName = (role: Role) =>
   ({ STUDENT: "学生", ORGANIZER: "主办方", INSPECTOR: "验票员" })[role];
-// Explicitly enabled for the local demo; every switch still authenticates via the API.
-const demoRoleSwitch = import.meta.env.VITE_DEMO_ROLE_SWITCH === "true";
-const roleAccount: Record<Role, string> = {
-  STUDENT: "student1",
-  ORGANIZER: "organizer1",
-  INSPECTOR: "inspector1",
-};
 type Ticket = {
   id: string;
   category: string;
@@ -255,7 +248,9 @@ function TicketArt({ kind }: { kind: Ticket["art"] }) {
 
 function TicketFront({ ticket }: { ticket: Ticket }) {
   return (
-    <div className="ticket-front-content">
+    <div
+      className={`ticket-front-content${ticket.title.length > 70 ? " ticket-copy-long" : ""}`}
+    >
       <span className="ticket-label" style={{ background: ticket.tint }}>
         {ticket.category}
       </span>
@@ -280,11 +275,17 @@ function TicketBack({
   onTransfer,
   operations = [],
   preview = true,
+  historyLoading = false,
+  historyError = "",
+  onHistoryRetry,
 }: {
   ticket: Ticket;
   onClose: () => void;
   onTransfer?: (ticket: Ticket) => void;
   operations?: Operation[];
+  historyLoading?: boolean;
+  historyError?: string;
+  onHistoryRetry?: () => void;
   preview?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
@@ -370,7 +371,13 @@ function TicketBack({
       <section className="chain-record" aria-label="链上记录">
         <p className="section-marker">链上记录</p>
         <h3>Made to be yours.</h3>
-        <OperationTimeline operations={operations} preview={preview} />
+        <OperationTimeline
+          operations={operations}
+          preview={preview}
+          loading={historyLoading}
+          error={historyError}
+          onRetry={onHistoryRetry}
+        />
         <dl>
           <div>
             <dt>状态</dt>
@@ -391,7 +398,14 @@ function TicketBack({
           <div>
             <dt>交易哈希</dt>
             <dd className="hash-value">
-              {operations[0]?.txId || (preview ? "未连接" : "暂无已确认交易")}
+              {operations[0]?.txId ||
+                (preview
+                  ? "未连接"
+                  : historyLoading
+                    ? "正在查询"
+                    : historyError
+                      ? "查询失败"
+                      : "暂无已确认交易")}
             </dd>
           </div>
         </dl>
@@ -517,12 +531,12 @@ function displayTicket(record: ApiTicket): Ticket {
     date: new Intl.DateTimeFormat("en", {
       month: "short",
       day: "2-digit",
-      timeZone: "UTC",
+      timeZone: "Asia/Hong_Kong",
     })
       .format(start)
       .toUpperCase(),
     time: event
-      ? `${new Intl.DateTimeFormat("en", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" }).format(start)} UTC`
+      ? `${new Intl.DateTimeFormat("en", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Hong_Kong" }).format(start)} UTC+8`
       : "查看活动",
     place: event?.location || "查看活动详情",
     note: event?.description || "记住这段校园时光。",
@@ -534,13 +548,35 @@ function App() {
   const refreshVersion = useRef(0);
   const [page, setPage] = useState<Page>("events");
   const [menuOpen, setMenuOpen] = useState(false);
+  const accountWrap = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const dismiss = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !accountWrap.current?.contains(event.target)
+      )
+        setMenuOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [menuOpen]);
   const [previewRole, setPreviewRole] = useState<Role>("STUDENT");
   const [roleHomeVersion, setRoleHomeVersion] = useState(0);
   const [notice, setNotice] = useState("");
   const [session, setSession] = useState<{ token: string; user: User } | null>(
     null,
   );
-  const [account, setAccount] = useState("student1");
+  const [account, setAccount] = useState("");
+  const [password, setPassword] = useState("");
+  const [loginRole, setLoginRole] = useState<Role>("STUDENT");
   const [events, setEvents] = useState<ApiEvent[]>(
     liveApiConfigured ? [] : previewEvents,
   );
@@ -550,6 +586,13 @@ function App() {
   const [ownedTickets, setOwnedTickets] = useState<ApiTicket[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<EventDetail | null>(null);
   const [operations, setOperations] = useState<Record<string, Operation[]>>({});
+  const [historyLoading, setHistoryLoading] = useState<Record<string, boolean>>(
+    {},
+  );
+  const [historyErrors, setHistoryErrors] = useState<Record<string, string>>(
+    {},
+  );
+  const historyVersions = useRef<Record<string, number>>({});
   const [eventsPage, setEventsPage] = useState(1);
   const [applicationsPage, setApplicationsPage] = useState(1);
   const [eventsTotal, setEventsTotal] = useState(
@@ -565,7 +608,7 @@ function App() {
   const [transfer, setTransfer] = useState<Ticket | null>(null);
   const [recipient, setRecipient] = useState("");
   const preview = !liveApiConfigured;
-  const currentRole = session?.user.role || previewRole;
+  const currentRole = session?.user.role || (preview ? previewRole : loginRole);
   const currentUser =
     session?.user ||
     (currentRole === "ORGANIZER"
@@ -600,14 +643,14 @@ function App() {
       const [nextEvents, nextRegistrations, nextTickets] = await Promise.all([
         studentApi.events(token, eventPage),
         studentApi.registrations(token, registrationPage),
-        studentApi.tickets(token),
+        studentApi.allTickets(token),
       ]);
       if (version !== refreshVersion.current) return;
       setEvents(nextEvents.data);
       setEventsTotal(nextEvents.total);
       setRegistrations(nextRegistrations.data);
       setApplicationsTotal(nextRegistrations.total);
-      setOwnedTickets(nextTickets.data);
+      setOwnedTickets(nextTickets);
     } catch (error) {
       if (version !== refreshVersion.current) return;
       setLoadError(
@@ -622,13 +665,11 @@ function App() {
     if (!liveApiConfigured) return;
     let cancelled = false;
     const token = savedToken();
-    if (!token && !demoRoleSwitch) {
+    if (!token) {
       setLoading(false);
       return;
     }
-    const restore = token
-      ? studentApi.me(token).then((user) => ({ token, user }))
-      : studentApi.login(roleAccount.STUDENT);
+    const restore = studentApi.me(token).then((user) => ({ token, user }));
     restore
       .then((result) => {
         if (cancelled) return;
@@ -664,6 +705,9 @@ function App() {
     setApplicationsPage(1);
     setSelectedEvent(null);
     setOperations({});
+    setHistoryLoading({});
+    setHistoryErrors({});
+    historyVersions.current = {};
     setTransfer(null);
     setRecipient("");
     setNotice("");
@@ -672,16 +716,20 @@ function App() {
     setPage("events");
   }
 
-  async function login(nextAccount = account.trim()) {
+  async function login() {
     if (busy) return;
     setBusy("login");
     setActionError("");
     try {
-      const result = await studentApi.login(nextAccount);
+      const result = await studentApi.login(
+        account.trim(),
+        password,
+        loginRole,
+      );
       resetAccountData();
       saveToken(result.token);
       setSession(result);
-      setAccount(nextAccount);
+      setPassword("");
       setMenuOpen(false);
       setLoading(result.user.role === "STUDENT");
       window.scrollTo({ top: 0, behavior: "instant" });
@@ -713,6 +761,7 @@ function App() {
         myRegistration:
           registrations.find((item) => item.eventId === id) || null,
         myTicket: null,
+        myTicketClaimed: false,
       });
       setPage("event-detail");
       window.scrollTo(0, 0);
@@ -762,9 +811,26 @@ function App() {
       if (
         session &&
         error instanceof ApiError &&
-        (error.status === 503 || error.code === "TIMEOUT")
-      )
+        (error.status === 503 ||
+          error.code === "TIMEOUT" ||
+          error.code === "NETWORK_ERROR")
+      ) {
+        setNotice("报名结果尚未确定，正在查询最新状态，请勿重复提交。");
         await refresh(session.token);
+        try {
+          const detail = await studentApi.event(
+            session.token,
+            selectedEvent.id,
+          );
+          setSelectedEvent(detail);
+          if (detail.myRegistration) {
+            setActionError("");
+            setNotice("已核对最新状态：报名已记录。");
+          }
+        } catch {
+          // Keep the uncertain result visible when reconciliation cannot complete.
+        }
+      }
     } finally {
       setBusy(null);
     }
@@ -789,9 +855,23 @@ function App() {
       setActionError(error instanceof Error ? error.message : "领票失败。");
       if (
         error instanceof ApiError &&
-        (error.status === 503 || error.code === "TIMEOUT")
-      )
+        (error.status === 503 ||
+          error.code === "TIMEOUT" ||
+          error.code === "NETWORK_ERROR")
+      ) {
+        setNotice("交易结果尚未确定，正在查询最新状态，请勿重复提交。");
         await refresh(session.token);
+        try {
+          const detail = await studentApi.event(session.token, id);
+          if (selectedEvent?.id === id) setSelectedEvent(detail);
+          if (detail.myTicket) {
+            setActionError("");
+            setNotice("已核对链上状态：门票已领取，可在“我的门票”查看。");
+          }
+        } catch {
+          // Do not announce a successful claim without confirmed ticket state.
+        }
+      }
     } finally {
       setBusy(null);
     }
@@ -799,11 +879,28 @@ function App() {
 
   async function openTicketRecord(ticket: Ticket) {
     if (preview || !session) return;
+    const versions = historyVersions.current;
+    const version = (historyVersions.current[ticket.id] ?? 0) + 1;
+    historyVersions.current[ticket.id] = version;
+    const isCurrent = () =>
+      versions === historyVersions.current && versions[ticket.id] === version;
+    setHistoryLoading((current) => ({ ...current, [ticket.id]: true }));
+    setHistoryErrors((current) => ({ ...current, [ticket.id]: "" }));
+    setOperations((current) => ({ ...current, [ticket.id]: [] }));
     try {
       const result = await studentApi.operations(session.token, ticket.id);
-      setOperations((current) => ({ ...current, [ticket.id]: result.data }));
-    } catch {
-      setOperations((current) => ({ ...current, [ticket.id]: [] }));
+      if (isCurrent())
+        setOperations((current) => ({ ...current, [ticket.id]: result.data }));
+    } catch (error) {
+      if (isCurrent())
+        setHistoryErrors((current) => ({
+          ...current,
+          [ticket.id]:
+            error instanceof Error ? error.message : "暂时无法查询，请重试。",
+        }));
+    } finally {
+      if (isCurrent())
+        setHistoryLoading((current) => ({ ...current, [ticket.id]: false }));
     }
   }
 
@@ -830,12 +927,16 @@ function App() {
       setActionError(error instanceof Error ? error.message : "转让失败。");
       if (
         error instanceof ApiError &&
-        (error.status === 503 || error.code === "TIMEOUT")
+        (error.status === 503 ||
+          error.code === "TIMEOUT" ||
+          error.code === "NETWORK_ERROR")
       ) {
         setTransfer(null);
         setPage("events");
         await refresh(session.token);
-        setNotice("已刷新转让状态，请先查看“我的门票”，再决定是否重试。");
+        setNotice(
+          "已尝试查询最新状态，请查看“我的门票”和链上记录后再决定是否重试。",
+        );
       }
     } finally {
       setBusy(null);
@@ -847,55 +948,55 @@ function App() {
   const showLogin = liveApiConfigured && !session;
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${showLogin ? " login-shell" : ""}`}>
       <header className="topbar">
         <button className="brand" onClick={goHome}>
           FairPass
         </button>
-        <nav aria-label="主导航">
-          {currentRole === "STUDENT" ? (
-            <>
-              <button
-                className={
-                  page === "events" || page === "event-detail"
-                    ? "nav-active"
-                    : ""
-                }
-                onClick={() => setPage("events")}
-              >
-                活动
+        {!showLogin && (
+          <nav aria-label="主导航">
+            {currentRole === "STUDENT" ? (
+              <>
+                <button
+                  className={
+                    page === "events" || page === "event-detail"
+                      ? "nav-active"
+                      : ""
+                  }
+                  onClick={() => setPage("events")}
+                >
+                  活动
+                </button>
+                <button
+                  className={page === "applications" ? "nav-active" : ""}
+                  onClick={() => setPage("applications")}
+                >
+                  我的报名
+                </button>
+                <button
+                  className={page === "tickets" ? "nav-active" : ""}
+                  onClick={() => setPage("tickets")}
+                >
+                  我的门票
+                </button>
+              </>
+            ) : (
+              <button className="nav-active" onClick={goHome}>
+                {currentRole === "ORGANIZER" ? <>活动管理</> : <>活动验票</>}
               </button>
-              <button
-                className={page === "applications" ? "nav-active" : ""}
-                onClick={() => setPage("applications")}
-              >
-                我的报名
-              </button>
-              <button
-                className={
-                  page === "tickets" || page === "incoming" ? "nav-active" : ""
-                }
-                onClick={() => setPage("tickets")}
-              >
-                我的门票
-              </button>
-            </>
-          ) : (
-            <button className="nav-active" onClick={goHome}>
-              {currentRole === "ORGANIZER" ? <>活动管理</> : <>活动验票</>}
-            </button>
-          )}
-        </nav>
-        <div className="account-wrap">
+            )}
+          </nav>
+        )}
+        <div className="account-wrap" ref={accountWrap}>
           <button
             className="account-button"
             onClick={() => setMenuOpen((value) => !value)}
             aria-expanded={menuOpen}
             aria-label="账户菜单"
           >
-            {demoRoleSwitch && session?.user.role === "STUDENT"
-              ? session.user.displayName
-              : "账户"}{" "}
+            <span>
+              {session ? session.user.displayName : roleName(currentRole)}
+            </span>
             <span className="account-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none">
                 <circle
@@ -919,79 +1020,74 @@ function App() {
                 />
               </svg>
             </span>
+            <svg
+              className="account-chevron"
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
+            >
+              <path d="m3 6 5 5 5-5" stroke="currentColor" strokeWidth="1.7" />
+            </svg>
           </button>
           {menuOpen && (
             <div className="account-menu">
-              {!demoRoleSwitch && (
+              {session ? (
                 <>
-                  <strong>{currentUser.displayName}</strong>
-                  <small>
-                    {preview
-                      ? "本地示例数据"
-                      : session?.user.role
-                        ? roleName(session.user.role)
-                        : "请登录"}
-                  </small>
+                  <strong>{session.user.displayName}</strong>
+                  <small>{roleName(session.user.role)}</small>
+                  <button
+                    className="account-logout"
+                    onClick={() => {
+                      clearToken();
+                      resetAccountData();
+                      setLoginRole(session.user.role);
+                      setAccount("");
+                      setPassword("");
+                      setSession(null);
+                      setMenuOpen(false);
+                      setLoading(false);
+                    }}
+                  >
+                    退出登录
+                  </button>
                 </>
-              )}
-              {(preview || demoRoleSwitch) && (
-                <div className="role-switch" aria-label="切换角色">
-                  <span>{preview ? "切换预览角色" : "切换角色"}</span>
-                  {!preview &&
-                    demoRoleSwitch &&
-                    demoStudents.map((student) => (
-                      <button
-                        key={student.id}
-                        className={
-                          student.id === currentUser.id ? "selected" : ""
-                        }
-                        aria-pressed={student.id === currentUser.id}
-                        disabled={Boolean(busy)}
-                        onClick={() => void login(student.account)}
-                      >
-                        {student.displayName}
-                      </button>
-                    ))}
-                  {(
-                    (!preview && demoRoleSwitch
-                      ? ["ORGANIZER", "INSPECTOR"]
-                      : ["STUDENT", "ORGANIZER", "INSPECTOR"]) as Role[]
-                  ).map((role) => (
-                    <button
-                      key={role}
-                      className={role === currentRole ? "selected" : ""}
-                      aria-pressed={role === currentRole}
-                      disabled={busy === "login"}
-                      onClick={() =>
-                        preview
-                          ? switchPreviewRole(role)
-                          : void login(roleAccount[role])
-                      }
-                    >
-                      {roleName(role)}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {session && !demoRoleSwitch && (
-                <button
-                  className="account-logout"
-                  disabled={busy === "login"}
-                  onClick={() => {
-                    clearToken();
-                    resetAccountData();
-                    setSession(null);
-                    setMenuOpen(false);
-                    setLoading(false);
-                  }}
+              ) : (
+                <div
+                  className="role-switch"
+                  aria-label={preview ? "预览身份" : "登录身份"}
                 >
-                  退出登录
-                </button>
+                  <span>{preview ? "预览身份" : "登录身份"}</span>
+                  {(["STUDENT", "ORGANIZER", "INSPECTOR"] as Role[]).map(
+                    (role) => (
+                      <button
+                        key={role}
+                        className={currentRole === role ? "selected" : ""}
+                        aria-pressed={currentRole === role}
+                        disabled={busy === "login"}
+                        onClick={() => {
+                          if (preview) switchPreviewRole(role);
+                          else {
+                            setLoginRole(role);
+                            setAccount("");
+                            setPassword("");
+                            setActionError("");
+                            setMenuOpen(false);
+                          }
+                        }}
+                      >
+                        {roleName(role)}
+                      </button>
+                    ),
+                  )}
+                </div>
               )}
             </div>
           )}
         </div>
       </header>
+      <TransactionPending
+        active={Boolean(busy && !["login", "event", "register"].includes(busy))}
+      />
       <main>
         {preview && (
           <div className="preview-ribbon">
@@ -999,66 +1095,17 @@ function App() {
           </div>
         )}
         {showLogin ? (
-          <section className="editorial-stage">
-            <div className="editorial-sheet login-sheet">
-              <h1>
-                Make room for <em>your next event.</em>
-              </h1>
-              <p>
-                {demoRoleSwitch
-                  ? "选择你的角色，继续探索校园里的好活动。"
-                  : "使用你的账号，进入校园活动与门票空间。"}
-              </p>
-              {demoRoleSwitch && (
-                <div className="login-roles" aria-label="选择角色">
-                  {(["STUDENT", "ORGANIZER", "INSPECTOR"] as Role[]).map(
-                    (role) => (
-                      <button
-                        key={role}
-                        className="login-role"
-                        disabled={busy === "login"}
-                        onClick={() => void login(roleAccount[role])}
-                      >
-                        <strong>{roleName(role)}</strong>
-                        <span>
-                          {role === "STUDENT"
-                            ? "发现活动，收藏门票"
-                            : role === "ORGANIZER"
-                              ? "发布活动，管理报名"
-                              : "核对门票，迎接入场"}
-                        </span>
-                        <span aria-hidden="true">↗</span>
-                      </button>
-                    ),
-                  )}
-                </div>
-              )}
-              <details className="account-signin" open={!demoRoleSwitch}>
-                <summary>使用其他账号</summary>
-                <label htmlFor="demo-account">账号</label>
-                <input
-                  id="demo-account"
-                  value={account}
-                  onChange={(event) => setAccount(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") void login();
-                  }}
-                />
-                <button
-                  className="blue-action"
-                  disabled={busy === "login"}
-                  onClick={() => void login()}
-                >
-                  {busy === "login" ? "正在登录…" : "继续 →"}
-                </button>
-              </details>
-              {actionError && (
-                <p className="form-error" role="alert">
-                  {actionError}
-                </p>
-              )}
-            </div>
-          </section>
+          <LoginPage
+            role={loginRole}
+            account={account}
+            password={password}
+            busy={busy === "login"}
+            restoring={loading}
+            error={actionError}
+            onAccount={setAccount}
+            onPassword={setPassword}
+            onSubmit={() => void login()}
+          />
         ) : currentRole === "ORGANIZER" ? (
           <OrganizerWorkspace
             key={`${currentUser.id}-${roleHomeVersion}`}
@@ -1090,14 +1137,6 @@ function App() {
         ) : page === "event-detail" && selectedEvent ? (
           <EventDetailPage
             event={selectedEvent}
-            registration={
-              registrations.find((item) => item.eventId === selectedEvent.id) ||
-              null
-            }
-            ticket={
-              ownedTickets.find((item) => item.eventId === selectedEvent.id) ||
-              null
-            }
             artwork={artwork(selectedEvent)}
             busy={Boolean(busy)}
             error={actionError}
@@ -1121,8 +1160,14 @@ function App() {
             claiming={busy}
             artwork={artwork}
           />
-        ) : page === "incoming" ? (
-          <IncomingTransfersPage onBack={() => setPage("tickets")} />
+        ) : loadError ? (
+          <section className="ticket-empty" role="alert">
+            <h1>门票暂时无法加载</h1>
+            <p>{loadError}</p>
+            <button onClick={() => session && void refresh(session.token)}>
+              重试加载
+            </button>
+          </section>
         ) : shownTickets.length ? (
           <>
             <TicketStage
@@ -1135,21 +1180,17 @@ function App() {
                   onClose={onClose}
                   preview={preview}
                   operations={operations[ticket.id] || []}
+                  historyLoading={historyLoading[ticket.id]}
+                  historyError={historyErrors[ticket.id]}
+                  onHistoryRetry={() => void openTicketRecord(ticket)}
                   onTransfer={(record) => {
                     setActionError("");
-                    setRecipient(
-                      demoRoleSwitch
-                        ? demoStudents.find(
-                            (student) => student.id !== currentUser.id,
-                          )?.id || ""
-                        : "",
-                    );
+                    setRecipient("");
                     setTransfer(record);
                   }}
                 />
               )}
               onOpen={(ticket) => void openTicketRecord(ticket)}
-              onIncoming={() => setPage("incoming")}
             />
           </>
         ) : (
@@ -1163,7 +1204,6 @@ function App() {
                 : "抽签中签后可以领取门票，也可以接收其他学生转来的门票。"}
             </p>
             <button onClick={() => setPage("events")}>浏览活动 →</button>
-            <button onClick={() => setPage("incoming")}>待接收门票 →</button>
           </section>
         )}
       </main>
@@ -1175,11 +1215,6 @@ function App() {
           busy={busy === "transfer"}
           error={actionError}
           recipient={recipient}
-          recipients={
-            demoRoleSwitch && !preview
-              ? demoStudents.filter((student) => student.id !== currentUser.id)
-              : undefined
-          }
           onRecipient={setRecipient}
           onClose={() => setTransfer(null)}
           onSubmit={() => void submitTransfer()}

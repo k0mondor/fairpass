@@ -16,6 +16,8 @@ import { readJson, recordOperation, writeJson } from './ledger';
 import { ChainEvent, Eligibility, Operation, Ticket } from './types';
 import { parseIsoUtc, parsePositiveInt, parseWinnerIds, requireHexId, requireUuid, txTime } from './validate';
 
+const CHECKIN_LEAD_MS = 30 * 60 * 1000;
+
 const MAX_WINNERS = 1000; // docs/SHARED_CONTRACT.md section 5: demo cap on registrations per event.
 
 @Info({ title: 'FairPass', description: 'FairPass ticketing chaincode' })
@@ -253,7 +255,7 @@ export class FairPassContract extends Contract {
 
     /**
      * An inspector redeems a ticket at the door. Allowed only while the
-     * event's own window is open (startAt <= now < endAt), and only once
+     * event's own window is open (startAt - 30 minutes <= now < endAt), and only once
      * per ticket. Whether the caller is really an inspector is checked by
      * the backend; the chaincode only enforces the ticket-level rules.
      */
@@ -277,7 +279,7 @@ export class FairPassContract extends Contract {
         const now = txTime(stub);
         const startMs = new Date(event.startAt).getTime();
         const endMs = new Date(event.endAt).getTime();
-        if (now.ms < startMs || now.ms >= endMs) {
+        if (now.ms < startMs - CHECKIN_LEAD_MS || now.ms >= endMs) {
             return fail(ErrorCode.CHECKIN_CLOSED, 'event check-in window is not open');
         }
 

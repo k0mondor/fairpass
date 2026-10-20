@@ -1,8 +1,13 @@
+import { CHECKIN_LEAD_MS } from "../types/domain.js";
 import { createHash, randomUUID } from "node:crypto";
 
 import type { ApiErrorCode } from "../errors/api-error.js";
 import type { Operation, OperationType, Ticket } from "../types/domain.js";
-import { businessError, GatewayError, type GatewayErrorKind } from "./gateway-error.js";
+import {
+  businessError,
+  GatewayError,
+  type GatewayErrorKind,
+} from "./gateway-error.js";
 import type {
   ChainEvent,
   ConfirmedSubmit,
@@ -62,7 +67,10 @@ export class MockGatewayAdapter implements GatewayAdapter {
     });
   }
 
-  async evaluate<T>(method: EvaluateMethod, args: readonly string[]): Promise<T> {
+  async evaluate<T>(
+    method: EvaluateMethod,
+    args: readonly string[],
+  ): Promise<T> {
     this.throwPreExecutionFault(method);
 
     let result: unknown;
@@ -88,12 +96,16 @@ export class MockGatewayAdapter implements GatewayAdapter {
       }
       case "GetOperationsByEvent": {
         this.expectArgs(method, args, 1);
-        result = this.operationsFor((operation) => operation.eventId === args[0]);
+        result = this.operationsFor(
+          (operation) => operation.eventId === args[0],
+        );
         break;
       }
       case "GetOperationsByTicket": {
         this.expectArgs(method, args, 1);
-        result = this.operationsFor((operation) => operation.ticketId === args[0]);
+        result = this.operationsFor(
+          (operation) => operation.ticketId === args[0],
+        );
         break;
       }
     }
@@ -112,7 +124,12 @@ export class MockGatewayAdapter implements GatewayAdapter {
 
     const txId = `mock-${randomUUID()}`;
     const occurredAt = this.clock().toISOString();
-    const { result, operation } = this.executeSubmit(method, args, txId, occurredAt);
+    const { result, operation } = this.executeSubmit(
+      method,
+      args,
+      txId,
+      occurredAt,
+    );
 
     if (queuedFault?.kind === "COMMIT_UNKNOWN") {
       throw new GatewayError(
@@ -158,13 +175,8 @@ export class MockGatewayAdapter implements GatewayAdapter {
     occurredAt: string,
   ): { result: ChainEvent; operation: Operation } {
     this.expectArgs("CreateEvent", args, 5);
-    const [eventId, organizerId, capacityValue, startAt, endAt] = args as readonly [
-      string,
-      string,
-      string,
-      string,
-      string,
-    ];
+    const [eventId, organizerId, capacityValue, startAt, endAt] =
+      args as readonly [string, string, string, string, string];
     const capacity = this.positiveInteger(capacityValue, "capacity");
     this.requireText(eventId, "eventId");
     this.requireText(organizerId, "organizerId");
@@ -227,7 +239,9 @@ export class MockGatewayAdapter implements GatewayAdapter {
       throw businessError("SOLD_OUT", "winner count exceeds capacity");
     }
     const canonicalJson = JSON.stringify(winnerIds);
-    const calculatedHash = createHash("sha256").update(canonicalJson).digest("hex");
+    const calculatedHash = createHash("sha256")
+      .update(canonicalJson)
+      .digest("hex");
     if (calculatedHash !== winnersHash) {
       throw businessError("VALIDATION_ERROR", "winners hash does not match");
     }
@@ -267,7 +281,9 @@ export class MockGatewayAdapter implements GatewayAdapter {
     if (this.clock().getTime() >= this.timestamp(event.startAt, "startAt")) {
       throw businessError("CLAIM_CLOSED", "event has started");
     }
-    const eligibility = this.eligibility.get(this.eligibilityKey(eventId, winnerId));
+    const eligibility = this.eligibility.get(
+      this.eligibilityKey(eventId, winnerId),
+    );
     if (!eligibility) {
       throw businessError("NOT_WINNER", "winner eligibility does not exist");
     }
@@ -326,7 +342,10 @@ export class MockGatewayAdapter implements GatewayAdapter {
     const ticket = this.requireTicket(ticketId);
     const event = this.requireEvent(ticket.eventId);
     if (ticket.ownerId !== fromUserId) {
-      throw businessError("NOT_TICKET_OWNER", "fromUserId is not the current owner");
+      throw businessError(
+        "NOT_TICKET_OWNER",
+        "fromUserId is not the current owner",
+      );
     }
     if (fromUserId === toUserId || toUserId.trim() === "") {
       throw businessError("INVALID_RECIPIENT", "recipient must be different");
@@ -335,7 +354,10 @@ export class MockGatewayAdapter implements GatewayAdapter {
       throw businessError("ALREADY_REDEEMED", "ticket was already redeemed");
     }
     if (ticket.transferCount >= 1) {
-      throw businessError("TRANSFER_LIMIT_REACHED", "ticket can only be transferred once");
+      throw businessError(
+        "TRANSFER_LIMIT_REACHED",
+        "ticket can only be transferred once",
+      );
     }
     if (this.clock().getTime() >= this.timestamp(event.startAt, "startAt")) {
       throw businessError("TRANSFER_CLOSED", "event has started");
@@ -372,10 +394,13 @@ export class MockGatewayAdapter implements GatewayAdapter {
     }
     const now = this.clock().getTime();
     if (
-      now < this.timestamp(event.startAt, "startAt") ||
+      now < this.timestamp(event.startAt, "startAt") - CHECKIN_LEAD_MS ||
       now >= this.timestamp(event.endAt, "endAt")
     ) {
-      throw businessError("CHECKIN_CLOSED", "event is not in its check-in window");
+      throw businessError(
+        "CHECKIN_CLOSED",
+        "event is not in its check-in window",
+      );
     }
 
     ticket.status = "REDEEMED";
@@ -399,17 +424,29 @@ export class MockGatewayAdapter implements GatewayAdapter {
     try {
       parsed = JSON.parse(value);
     } catch {
-      throw businessError("VALIDATION_ERROR", "winnerIdsJson is not valid JSON");
+      throw businessError(
+        "VALIDATION_ERROR",
+        "winnerIdsJson is not valid JSON",
+      );
     }
-    if (!Array.isArray(parsed) || parsed.some((id) => typeof id !== "string" || id === "")) {
-      throw businessError("VALIDATION_ERROR", "winnerIdsJson must be a string array");
+    if (
+      !Array.isArray(parsed) ||
+      parsed.some((id) => typeof id !== "string" || id === "")
+    ) {
+      throw businessError(
+        "VALIDATION_ERROR",
+        "winnerIdsJson must be a string array",
+      );
     }
     const winnerIds = parsed as string[];
     const sortedUnique = [...new Set(winnerIds)].sort((left, right) =>
       left.localeCompare(right),
     );
     if (JSON.stringify(winnerIds) !== JSON.stringify(sortedUnique)) {
-      throw businessError("VALIDATION_ERROR", "winner IDs must be sorted and unique");
+      throw businessError(
+        "VALIDATION_ERROR",
+        "winner IDs must be sorted and unique",
+      );
     }
     return winnerIds;
   }
@@ -442,12 +479,15 @@ export class MockGatewayAdapter implements GatewayAdapter {
     return operation;
   }
 
-  private operationsFor(predicate: (operation: Operation) => boolean): Operation[] {
+  private operationsFor(
+    predicate: (operation: Operation) => boolean,
+  ): Operation[] {
     return this.operations
       .filter(predicate)
-      .sort((left, right) =>
-        right.occurredAt.localeCompare(left.occurredAt) ||
-        right.txId.localeCompare(left.txId),
+      .sort(
+        (left, right) =>
+          right.occurredAt.localeCompare(left.occurredAt) ||
+          right.txId.localeCompare(left.txId),
       );
   }
 
@@ -480,7 +520,11 @@ export class MockGatewayAdapter implements GatewayAdapter {
     return `${eventId}:${userId}`;
   }
 
-  private expectArgs(method: GatewayMethod, args: readonly string[], count: number): void {
+  private expectArgs(
+    method: GatewayMethod,
+    args: readonly string[],
+    count: number,
+  ): void {
     if (args.length !== count) {
       throw businessError(
         "VALIDATION_ERROR",
@@ -498,7 +542,10 @@ export class MockGatewayAdapter implements GatewayAdapter {
   private positiveInteger(value: string, name: string): number {
     const parsed = Number(value);
     if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-      throw businessError("VALIDATION_ERROR", `${name} must be a positive integer`);
+      throw businessError(
+        "VALIDATION_ERROR",
+        `${name} must be a positive integer`,
+      );
     }
     return parsed;
   }
@@ -506,7 +553,10 @@ export class MockGatewayAdapter implements GatewayAdapter {
   private timestamp(value: string, name: string): number {
     const parsed = Date.parse(value);
     if (!Number.isFinite(parsed)) {
-      throw businessError("VALIDATION_ERROR", `${name} must be an ISO timestamp`);
+      throw businessError(
+        "VALIDATION_ERROR",
+        `${name} must be an ISO timestamp`,
+      );
     }
     return parsed;
   }
@@ -525,8 +575,14 @@ export class MockGatewayAdapter implements GatewayAdapter {
 
   private throwFault(method: GatewayMethod, fault: MockFault): never {
     if (fault.kind === "BUSINESS") {
-      throw businessError(fault.code, `Injected ${fault.code} fault for ${method}`);
+      throw businessError(
+        fault.code,
+        `Injected ${fault.code} fault for ${method}`,
+      );
     }
-    throw new GatewayError(fault.kind, `Injected ${fault.kind} fault for ${method}`);
+    throw new GatewayError(
+      fault.kind,
+      `Injected ${fault.kind} fault for ${method}`,
+    );
   }
 }

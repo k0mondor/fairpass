@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ApiError,
+  CHECKIN_LEAD_MS,
   roleApi,
   type CreateEventInput,
   type Event,
@@ -10,6 +11,7 @@ import {
   type Ticket,
   type User,
 } from "../api/client";
+import { TransactionPending } from "../components/TransactionPending";
 import { dateLabel, operationLabel, timeLabel } from "./StudentPages";
 import "./role-pages.css";
 
@@ -68,7 +70,7 @@ function OperationDrawer({
     ["类型", operationLabel(operation.type)],
     [
       "时间",
-      `${dateLabel(operation.occurredAt)} · ${timeLabel(operation.occurredAt)} UTC`,
+      `${dateLabel(operation.occurredAt)} · ${timeLabel(operation.occurredAt)} UTC+8`,
     ],
     ["交易 ID", operation.txId],
     ["通道", operation.channelName],
@@ -382,7 +384,18 @@ export function OrganizerWorkspace({
           : "活动创建成功，交易已确认。",
       );
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "创建活动失败。");
+      const uncertain =
+        failure instanceof ApiError &&
+        (failure.status === 503 ||
+          failure.code === "TIMEOUT" ||
+          failure.code === "NETWORK_ERROR");
+      setError(
+        uncertain
+          ? "创建结果尚未确定。请保留当前表单，使用原内容重试以核对同一次创建；修改表单会发起新的创建。"
+          : failure instanceof Error
+            ? failure.message
+            : "创建活动失败。",
+      );
     } finally {
       setBusy("");
     }
@@ -411,8 +424,11 @@ export function OrganizerWorkspace({
       if (
         token &&
         failure instanceof ApiError &&
-        (failure.status === 503 || failure.code === "TIMEOUT")
+        (failure.status === 503 ||
+          failure.code === "TIMEOUT" ||
+          failure.code === "NETWORK_ERROR")
       ) {
+        setNotice("抽签结果尚未确定，正在核对链上状态，请勿重复提交。");
         try {
           setSelected(await roleApi.event(token, selected.id));
           await loadOperations(selected.id);
@@ -446,6 +462,7 @@ export function OrganizerWorkspace({
 
   return (
     <>
+      <TransactionPending active={busy === "create" || busy === "draw"} />
       <section className="editorial-stage">
         <div className="editorial-sheet role-sheet">
           {screen === "list" ? (
@@ -589,7 +606,7 @@ export function OrganizerWorkspace({
                         {dateLabel(selected.startAt)}
                         <br />
                         {timeLabel(selected.startAt)}–
-                        {timeLabel(selected.endAt)} UTC
+                        {timeLabel(selected.endAt)} UTC+8
                       </dd>
                     </div>
                     <div>
@@ -600,7 +617,7 @@ export function OrganizerWorkspace({
                       <dt>报名截止</dt>
                       <dd>
                         {dateLabel(selected.registrationDeadline)} ·{" "}
-                        {timeLabel(selected.registrationDeadline)} UTC
+                        {timeLabel(selected.registrationDeadline)} UTC+8
                       </dd>
                     </div>
                   </dl>
@@ -694,19 +711,29 @@ export function OrganizerWorkspace({
                 description="按时间从近到远，查看这场活动已确认的交易。"
               />
               <div className="role-record-tools">
-                <label htmlFor="operation-filter">记录类型</label>
-                <select
-                  id="operation-filter"
-                  value={filter}
-                  onChange={(event) => changeFilter(event.target.value)}
+                <span className="role-record-label">记录类型</span>
+                <div
+                  className="role-record-filters"
+                  role="group"
+                  aria-label="记录类型"
                 >
-                  <option value="">全部已确认记录</option>
-                  {operationTypes.map((type) => (
-                    <option key={type} value={type}>
-                      {operationLabel(type)}
-                    </option>
+                  {[
+                    { value: "", label: "全部" },
+                    ...operationTypes.map((type) => ({
+                      value: type,
+                      label: operationLabel(type),
+                    })),
+                  ].map((item) => (
+                    <button
+                      key={item.value}
+                      type="button"
+                      aria-pressed={filter === item.value}
+                      onClick={() => changeFilter(item.value)}
+                    >
+                      {item.label}
+                    </button>
                   ))}
-                </select>
+                </div>
               </div>
               {error && (
                 <p className="form-error" role="alert">
@@ -726,7 +753,7 @@ export function OrganizerWorkspace({
                       <strong>{operationLabel(item.type)}</strong>
                       <span>
                         {dateLabel(item.occurredAt)} ·{" "}
-                        {timeLabel(item.occurredAt)} UTC
+                        {timeLabel(item.occurredAt)} UTC+8
                       </span>
                       <span>{item.txId.slice(0, 18)}…</span>
                       <b>→</b>
@@ -792,6 +819,7 @@ export function InspectorWorkspace({
   sampleEvent: Event;
 }) {
   const [state, setState] = useState<InspectorState>("scan");
+  const [now, setNow] = useState(() => Date.now());
   const [input, setInput] = useState("");
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [message, setMessage] = useState("");
@@ -848,6 +876,7 @@ export function InspectorWorkspace({
           "没有找到这张预览门票。请使用 demo-ticket-after-hours 体验验票流程。",
         );
       setTicket(record);
+      setNow(Date.now());
       setState("review");
     } catch (failure) {
       setMessage(failure instanceof Error ? failure.message : "未找到门票。");
@@ -912,7 +941,7 @@ export function InspectorWorkspace({
   }
 
   async function redeem() {
-    if (!ticket || busy || ticket.status !== "ACTIVE") return;
+    if (!ticket || busy || ticket.status !== "ACTIVE" || !checkinOpen) return;
     setBusy(true);
     setMessage("");
     try {
@@ -932,7 +961,9 @@ export function InspectorWorkspace({
       if (
         !preview &&
         failure instanceof ApiError &&
-        (failure.status === 503 || failure.code === "TIMEOUT")
+        (failure.status === 503 ||
+          failure.code === "TIMEOUT" ||
+          failure.code === "NETWORK_ERROR")
       ) {
         try {
           setTicket(await roleApi.ticket(token!, ticket.id));
@@ -958,9 +989,29 @@ export function InspectorWorkspace({
     window.scrollTo({ top: 0, behavior: "instant" });
   }
   const event = ticket?.event;
+  const checkinOpen =
+    preview ||
+    Boolean(
+      event &&
+      now >= Date.parse(event.startAt) - CHECKIN_LEAD_MS &&
+      now < Date.parse(event.endAt),
+    );
+  const windowMessage = !event
+    ? "缺少活动时间，请重新查询。"
+    : now < Date.parse(event.startAt) - CHECKIN_LEAD_MS
+      ? "验票尚未开放，将在活动开始前30分钟开放。"
+      : now >= Date.parse(event.endAt)
+        ? "验票时间已结束，不能核销。"
+        : "当前处于验票时间内。";
+  useEffect(() => {
+    if (state !== "review" || preview) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [state, preview]);
 
   return (
     <section className="editorial-stage">
+      <TransactionPending active={busy && state === "review"} />
       <div
         className={`editorial-sheet role-sheet inspector-sheet inspector-${state}`}
       >
@@ -1053,7 +1104,7 @@ export function InspectorWorkspace({
                   <dt>活动时间</dt>
                   <dd>
                     {event
-                      ? `${dateLabel(event.startAt)} · ${timeLabel(event.startAt)} UTC`
+                      ? `${dateLabel(event.startAt)} ${timeLabel(event.startAt)} — ${dateLabel(event.endAt)} ${timeLabel(event.endAt)} UTC+8`
                       : "未提供"}
                   </dd>
                 </div>
@@ -1068,16 +1119,45 @@ export function InspectorWorkspace({
                 <div>
                   <dt>状态</dt>
                   <dd>
-                    {ticket.status === "ACTIVE" ? "有效，可核销" : "已核销"}
+                    {ticket.status === "ACTIVE"
+                      ? checkinOpen
+                        ? "有效，可核销"
+                        : "有效，当前不可核销"
+                      : "已核销"}
                   </dd>
                 </div>
               </dl>
             </div>
+            {!preview && (
+              <div className="inspection-window" role="status">
+                <strong>{windowMessage}</strong>
+                {event && (
+                  <span>
+                    验票时间：
+                    {dateLabel(
+                      new Date(
+                        Date.parse(event.startAt) - CHECKIN_LEAD_MS,
+                      ).toISOString(),
+                    )}{" "}
+                    {timeLabel(
+                      new Date(
+                        Date.parse(event.startAt) - CHECKIN_LEAD_MS,
+                      ).toISOString(),
+                    )}{" "}
+                    — {dateLabel(event.endAt)} {timeLabel(event.endAt)} UTC+8
+                  </span>
+                )}
+                <span>
+                  当前时间：{dateLabel(new Date(now).toISOString())}{" "}
+                  {timeLabel(new Date(now).toISOString())} UTC+8
+                </span>
+              </div>
+            )}
             <div className="inspection-actions">
               {ticket.status === "ACTIVE" ? (
                 <button
                   className="blue-action"
-                  disabled={busy}
+                  disabled={busy || !checkinOpen}
                   onClick={() => void redeem()}
                 >
                   {busy ? "正在确认…" : "确认核销"}
@@ -1138,7 +1218,7 @@ export function InspectorWorkspace({
                   {preview
                     ? "未实际核销"
                     : ticket.redeemedAt
-                      ? `${dateLabel(ticket.redeemedAt)} · ${timeLabel(ticket.redeemedAt)} UTC`
+                      ? `${dateLabel(ticket.redeemedAt)} · ${timeLabel(ticket.redeemedAt)} UTC+8`
                       : "服务端已确认"}
                 </dd>
               </div>

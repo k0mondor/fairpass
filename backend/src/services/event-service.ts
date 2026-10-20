@@ -47,15 +47,31 @@ export class EventService {
     const event = await this.toEvent(record);
 
     if (actor.role !== "STUDENT") {
-      return { ...event, myRegistration: null, myTicket: null };
+      return {
+        ...event,
+        myRegistration: null,
+        myTicket: null,
+        myTicketClaimed: false,
+      };
     }
 
-    const myRegistration = this.registrations.findByEventAndUser(eventId, actor.id);
+    const myRegistration = this.registrations.findByEventAndUser(
+      eventId,
+      actor.id,
+    );
     const myTicket = record.drawWinnersHash
       ? await this.ledger.findTicketByOwnerForEvent(actor.id, eventId)
       : null;
 
-    return { ...event, myRegistration, myTicket };
+    const myTicketClaimed =
+      record.drawWinnersHash && myRegistration?.status === "WON"
+        ? await this.hasClaimedTicket(eventId, actor.id)
+        : false;
+    return { ...event, myRegistration, myTicket, myTicketClaimed };
+  }
+
+  hasClaimedTicket(eventId: string, winnerId: string): Promise<boolean> {
+    return this.ledger.hasClaimedTicket(eventId, winnerId);
   }
 
   findRecord(eventId: string, now: Date = this.clock()): EventRecord {
@@ -103,7 +119,9 @@ export class EventService {
 
     const result = this.events.list(repositoryInput);
     return {
-      data: await Promise.all(result.data.map((record) => this.toEvent(record))),
+      data: await Promise.all(
+        result.data.map((record) => this.toEvent(record)),
+      ),
       page: input.page,
       pageSize: input.pageSize,
       total: result.total,

@@ -12,26 +12,58 @@ import {
 
 describe("request validation", () => {
   it("validates UUIDs and 64-character lowercase ticket IDs", () => {
-    expect(uuidSchema.safeParse("11111111-1111-4111-8111-111111111111").success).toBe(true);
+    expect(
+      uuidSchema.safeParse("11111111-1111-4111-8111-111111111111").success,
+    ).toBe(true);
     expect(uuidSchema.safeParse("not-a-uuid").success).toBe(false);
     expect(ticketIdSchema.safeParse("a".repeat(64)).success).toBe(true);
     expect(ticketIdSchema.safeParse("A".repeat(64)).success).toBe(false);
   });
 
   it("applies pagination defaults and limits", () => {
-    expect(parseInput(eventListQuerySchema, {})).toEqual({ page: 1, pageSize: 20 });
-    expect(parseInput(eventListQuerySchema, { page: "2", pageSize: "100", status: "OPEN" })).toEqual({
+    expect(parseInput(eventListQuerySchema, {})).toEqual({
+      page: 1,
+      pageSize: 20,
+    });
+    expect(
+      parseInput(eventListQuerySchema, {
+        page: "2",
+        pageSize: "100",
+        status: "OPEN",
+      }),
+    ).toEqual({
       page: 2,
       pageSize: 100,
       status: "OPEN",
     });
-    expect(() => parseInput(eventListQuerySchema, { pageSize: "101" })).toThrow(ApiError);
+    expect(() => parseInput(eventListQuerySchema, { pageSize: "101" })).toThrow(
+      ApiError,
+    );
   });
 
   it("rejects unknown login fields and unsafe account shapes", () => {
-    expect(parseInput(demoLoginBodySchema, { account: " student1 " })).toEqual({ account: "student1" });
-    expect(() => parseInput(demoLoginBodySchema, { account: "student 1" })).toThrow(ApiError);
-    expect(() => parseInput(demoLoginBodySchema, { account: "student1", role: "ORGANIZER" })).toThrow(ApiError);
+    expect(
+      parseInput(demoLoginBodySchema, {
+        account: " alex ",
+        password: "123456",
+        role: "STUDENT",
+      }),
+    ).toEqual({ account: "alex", password: "123456", role: "STUDENT" });
+    expect(() =>
+      parseInput(demoLoginBodySchema, {
+        account: "student 1",
+        password: "123456",
+        role: "STUDENT",
+      }),
+    ).toThrow(ApiError);
+    expect(() =>
+      parseInput(demoLoginBodySchema, {
+        account: "alex",
+        password: "123456",
+        role: "STUDENT",
+        admin: true,
+      }),
+    ).toThrow(ApiError);
   });
 
   it("checks event strings, integers, timezone-aware dates, and ordering", () => {
@@ -45,8 +77,17 @@ describe("request validation", () => {
       endAt: "2026-10-02T12:00:00+08:00",
     };
     expect(parseInput(createEventBodySchema, valid).capacity).toBe(120);
-    expect(() => parseInput(createEventBodySchema, { ...valid, capacity: 1.5 })).toThrow(ApiError);
-    expect(() => parseInput(createEventBodySchema, { ...valid, startAt: valid.registrationDeadline })).toThrow(ApiError);
-    expect(() => parseInput(createEventBodySchema, { ...valid, endAt: "not-a-date" })).toThrow(ApiError);
+    expect(() =>
+      parseInput(createEventBodySchema, { ...valid, capacity: 1.5 }),
+    ).toThrow(ApiError);
+    expect(() =>
+      parseInput(createEventBodySchema, {
+        ...valid,
+        startAt: valid.registrationDeadline,
+      }),
+    ).toThrow(ApiError);
+    expect(() =>
+      parseInput(createEventBodySchema, { ...valid, endAt: "not-a-date" }),
+    ).toThrow(ApiError);
   });
 });

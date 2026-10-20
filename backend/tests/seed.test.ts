@@ -12,6 +12,18 @@ afterEach(() => {
 });
 
 describe("demo user seed", () => {
+  it("enforces one unique username regardless of letter case", () => {
+    database = openDatabase(":memory:");
+    runMigrations(database);
+    seedDemoUsers(database);
+    expect(() =>
+      database!
+        .prepare(
+          "INSERT INTO users (id, account, display_name, role) VALUES (?, ?, ?, ?)",
+        )
+        .run("another-user", "ALEX", "Different person", "STUDENT"),
+    ).toThrow(/UNIQUE/);
+  });
   it("creates all role accounts and remains idempotent", () => {
     database = openDatabase(":memory:");
     runMigrations(database);
@@ -25,13 +37,15 @@ describe("demo user seed", () => {
     expect(users).toHaveLength(5);
     expect(users).toEqual(
       expect.arrayContaining([
-        { account: "student1", role: "STUDENT" },
-        { account: "student2", role: "STUDENT" },
-        { account: "student3", role: "STUDENT" },
-        { account: "organizer1", role: "ORGANIZER" },
-        { account: "inspector1", role: "INSPECTOR" },
+        { account: "alex", role: "STUDENT" },
+        { account: "jamie", role: "STUDENT" },
+        { account: "casey", role: "STUDENT" },
+        { account: "morgan", role: "ORGANIZER" },
+        { account: "taylor", role: "INSPECTOR" },
       ]),
     );
-    expect(demoUsers.map(({ id }) => id)).toHaveLength(new Set(demoUsers.map(({ id }) => id)).size);
+    expect(demoUsers.map(({ id }) => id)).toHaveLength(
+      new Set(demoUsers.map(({ id }) => id)).size,
+    );
   });
 });

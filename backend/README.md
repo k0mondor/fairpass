@@ -58,13 +58,13 @@ SQLite 文件位置由 `SQLITE_PATH` 配置，默认示例为 `./data/fairpass.s
 
 | account | 显示名 | 角色 |
 |---|---|---|
-| `student1` | 学生一 | STUDENT |
-| `student2` | 学生二 | STUDENT |
-| `student3` | 学生三 | STUDENT |
-| `organizer1` | 主办方一 | ORGANIZER |
-| `inspector1` | 检票员一 | INSPECTOR |
+| `alex` | alex | STUDENT |
+| `jamie` | jamie | STUDENT |
+| `casey` | casey | STUDENT |
+| `morgan` | morgan | ORGANIZER |
+| `taylor` | taylor | INSPECTOR |
 
-登录使用 `POST /api/v1/auth/demo-login`，请求体为 `{ "account": "student1" }`。成功后把 token 放入 `Authorization: Bearer <token>`，可通过 `GET /api/v1/auth/me` 查询当前身份。
+登录使用 `POST /api/v1/auth/demo-login`，请求体为 `{ "account": "alex", "password": "123456", "role": "STUDENT" }`。三个字段都必须提供，账号名、密码或身份不匹配统一返回401。密码为本地课程账号共享口令，默认`123456`，可配置`DEMO_LOGIN_PASSWORD`；服务器使用scrypt派生与恒定时间比较，不接受旧的仅account免密请求。原用户UUID保持不变。成功后把 token 放入 `Authorization: Bearer <token>`，可通过 `GET /api/v1/auth/me` 查询当前身份。
 
 token 使用 `DEMO_TOKEN_SECRET` 进行 HS256 签名，并校验 issuer、audience 和过期时间。服务启动时要求 secret 至少 32 个字符；有效期由正整数 `DEMO_TOKEN_TTL_SECONDS` 配置。角色来源于已签名 token，服务端同时检查对应用户仍存在且角色一致。
 
@@ -90,7 +90,7 @@ token 使用 `DEMO_TOKEN_SECRET` 进行 HS256 签名，并校验 issuer、audien
 | `GET /api/v1/me/tickets` | 学生 | 通过 Gateway owner 索引分页查询当前持有票，每项附完整活动 |
 | `GET /api/v1/tickets/:ticketId` | 当前持有人、本活动主办方、检票员 | 查询门票详情并附完整活动 |
 | `POST /api/v1/tickets/:ticketId/transfer` | 当前持有人 | 活动开始前将 ACTIVE 门票转给另一个学生，最多一次 |
-| `POST /api/v1/tickets/:ticketId/redeem` | 检票员 | 活动进行期间核销，返回更新后的票和本次已确认交易的 Operation |
+| `POST /api/v1/tickets/:ticketId/redeem` | 检票员 | 活动开始前30分钟至结束期间核销，返回更新后的票和本次已确认交易的 Operation |
 | `GET /api/v1/events/:eventId/operations` | 本活动主办方 | 已确认活动历史，支持分页和 `type` 筛选 |
 | `GET /api/v1/tickets/:ticketId/operations` | 当前持有人、本活动主办方、检票员 | 已确认票务历史，支持分页 |
 
@@ -112,7 +112,7 @@ token 使用 `DEMO_TOKEN_SECRET` 进行 HS256 签名，并校验 issuer、audien
 
 转让前会校验请求人是当前持有人、接收人是已存在的其他学生、票未核销且未转让过，并要求 `now < startAt`。链上确认后 owner 索引立即生效。提交结果未知时读取同一张票对账；状态仍与提交前完全一致时最多重试一次，状态冲突或无法确认时返回 503。
 
-核销只允许检票员在 `startAt <= now < endAt` 执行。正常成功直接使用本次 `submitAndConfirm` 返回的 Operation，并校验其 `id`、`txId`、票、活动和检票员均对应本次交易；commit unknown 时只按异常携带的精确 txId 查询并核对操作记录，不会用“最新一条”猜测成功交易。响应中的票附完整活动及更新后的链上核销计数。
+核销只允许检票员在 `startAt - 30分钟 <= now < endAt` 执行。正常成功直接使用本次 `submitAndConfirm` 返回的 Operation，并校验其 `id`、`txId`、票、活动和检票员均对应本次交易；commit unknown 时只按异常携带的精确 txId 查询并核对操作记录，不会用“最新一条”猜测成功交易。响应中的票附完整活动及更新后的链上核销计数。
 
 活动操作历史仅允许本活动主办方查看，可按五种 `OperationType` 筛选；票操作历史沿用票详情权限，只返回该票的领票、转让和核销。两类接口均从 Gateway 读取、按 `occurredAt DESC, txId DESC` 稳定排序后服务端分页，并校验交易 ID、资源归属、channel、chaincode 和区块号格式。Gateway 不可用或返回跨资源、重复、未确认形状的数据时返回 503；`blockNumber` 未提供时保持 `null`，不会伪造。
 
@@ -131,7 +131,7 @@ Mock 交易 ID 始终以 `mock-` 开头，`blockNumber` 始终为 `null`，服�
 
 测试可通过 `MockGatewayAdapter.queueFault(method, fault)` 注入网络、超时、背书、commit、业务冲突和 `COMMIT_UNKNOWN`。除 `COMMIT_UNKNOWN` 外，故障在状态写入前发生；`COMMIT_UNKNOWN` 会先应用状态再抛错，用于验证调用方通过查询对账，不能据异常直接判定交易失败。
 
-设置 `FABRIC_GATEWAY_MODE=real` 时，adapter 使用 `@hyperledger/fabric-gateway` 和 gRPC 连接 peer，读取配置中的 TLS 根证书、客户端证书和私钥。写入经过背书、提交和 commit 状态确认；只有 VALID 才返回成功，并按精确 txId 读取同一交易的 Operation。操作历史补充 channelName、chaincodeName；无法获取的历史区块号保持 null。提交或确认阶段失联保留 txId，以便业务层对账。缺失配置或连接失败返回 `503 FABRIC_UNAVAILABLE`。
+设置 `FABRIC_GATEWAY_MODE=real` 时，adapter 使用 `@hyperledger/fabric-gateway` 和 gRPC 连接 peer，读取配置中的 TLS 根证书、客户端证书和私钥。写入经过背书、提交和 commit 状态确认；只有 VALID 才返回成功，并按精确 txId 读取同一交易的 Operation。操作历史补充 channelName、chaincodeName，并通过 QSCC `GetBlockByTxID` 查询真实区块号，缓存最多5000条已确认交易的区块号；查询失败返回503，不伪造区块号。提交或确认阶段失联保留 txId，以便业务层对账。缺失配置或连接失败返回 `503 FABRIC_UNAVAILABLE`。
 
 ### 本机 WSL 联调
 
@@ -206,3 +206,7 @@ src/
 复制 `.env.example` 为本地 `.env` 后再填写实际配置。不得提交 token secret、Fabric 私钥、客户端证书、真实数据库或本机环境文件。
 
 `FABRIC_GATEWAY_MODE` 仅接受 `mock` 或 `real`。`mock` 只用于前期页面和服务联调；最终验收必须切换到真实 Fabric Gateway，模拟交易不能标记为真实上链。channel、chaincode、MSP、peer endpoint、TLS 根证书、客户端证书与私钥路径均从环境变量读取，任何凭据都不得提交到仓库。
+
+## 可交互的真实演示数据
+
+真实后端启动后，在WSL的 `/opt/fairpass-dev/backend` 运行 `npm run demo:interactive`，准备“开放报名体验”“领票与转让体验”“现场验票体验”三组数据。alex可报名或领取/转让，检票员可对已开始活动的预领票核销。首次准备需约半分钟等待真实报名截止，核销从活动开始前30分钟起开放，核销窗口4小时。再次执行会保留历史、复用尚可操作的场次，并补充已用完或过期的场次；`npm run demo:interactive -- --new` 强制新增。记录在忽略的 `.local/interactive-demo.json`，不同场次标题带准备时间避免混淆。已领取并转出的旧票不会恢复为可领取。

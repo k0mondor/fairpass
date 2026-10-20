@@ -76,6 +76,11 @@
 .ticket-front .ticket-artwork .ticket-front-content {
   padding: 43px 43px 29px;
 }
+.ticket-front .ticket-artwork .ticket-label,
+.ticket-front .ticket-artwork h2,
+.ticket-front .ticket-artwork .ticket-front-date {
+  flex-shrink: 0;
+}
 .ticket-front .ticket-artwork h2 {
   font-size: 44px;
   line-height: 1.035;
@@ -87,7 +92,14 @@
 }
 .ticket-front .ticket-artwork .art-container {
   width: calc(100% + 44px);
+  min-height: 0;
+  max-height: 284px;
+  flex: 1 1 0;
+  aspect-ratio: auto;
   margin: auto -22px 9px;
+}
+.ticket-front .ticket-artwork .ticket-copy-long h2 {
+  font-size: 32px;
 }
 .ticket-front .ticket-artwork .ticket-front-date {
   font-size: 14px;

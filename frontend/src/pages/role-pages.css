@@ -266,21 +266,50 @@
   color: var(--blue);
 }
 .role-record-tools {
+  display: grid;
+  gap: 12px;
+  margin: 36px 0 22px;
+}
+.role-record-label {
+  color: #667383;
+  font-size: 12px;
+}
+.role-record-filters {
   display: flex;
-  align-items: center;
-  gap: 18px;
-  margin: 40px 0 18px;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  border-bottom: 1px solid #d0d5dc;
 }
-.role-record-tools label {
-  font-weight: 700;
-  font-size: 13px;
+.role-record-filters button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 10px 0 12px;
+  background: transparent;
+  color: #596373;
+  font-size: 14px;
 }
-.role-record-tools select {
-  border: 1px solid #b8c1cc;
-  border-radius: 7px;
-  padding: 11px;
-  background: white;
-  font: inherit;
+.role-record-filters button:hover {
+  color: var(--blue);
+}
+.role-record-filters button[aria-pressed="true"] {
+  color: var(--blue);
+  border-bottom-color: var(--blue);
+  font-weight: 600;
+}
+.inspection-window {
+  display: grid;
+  gap: 8px;
+  margin: 24px 0;
+  color: #536070;
+  line-height: 1.6;
+  font-size: 14px;
+}
+.inspection-window strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.inspection-window span {
+  font-variant-numeric: tabular-nums;
 }
 .role-notice {
   padding: 15px 18px;

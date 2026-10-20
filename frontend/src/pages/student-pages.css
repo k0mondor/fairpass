@@ -25,7 +25,6 @@
 .student-sheet h1 em,
 .login-sheet h1 em,
 .ticket-empty h1 em,
-.incoming-wrap h1 em,
 .transfer-panel h2 em {
   display: block;
   font-family: "Instrument Serif", Georgia, serif;
@@ -486,56 +485,6 @@
   font-size: 14px !important;
   line-height: 1.55 !important;
 }
-.incoming-stage {
-  color: white;
-}
-.incoming-wrap {
-  max-width: 860px;
-  margin: 35px auto;
-}
-.incoming-wrap h1 {
-  font-size: clamp(36px, 5vw, 62px);
-  letter-spacing: -0.035em;
-  line-height: 1.15;
-}
-.incoming-wrap h1 em {
-  font-size: 0.9em;
-}
-.incoming-empty {
-  margin-top: 42px;
-  border-radius: 13px;
-  padding: clamp(30px, 5vw, 55px);
-  background: var(--paper);
-  color: var(--ink);
-}
-.incoming-empty h2 {
-  margin: 0 0 15px;
-  font-size: 32px;
-}
-.incoming-empty p {
-  max-width: 60ch;
-  line-height: 1.75;
-  color: #515c6a;
-}
-.incoming-empty button {
-  border: 0;
-  background: none;
-  color: var(--blue);
-  font-weight: 700;
-  padding: 10px 0;
-}
-.incoming-entry {
-  display: block;
-  margin: 0 0 0 auto;
-  padding: 10px 0;
-  border: 0;
-  background: transparent;
-  color: white;
-  font-size: 12px;
-  letter-spacing: 0;
-  text-decoration: underline;
-  text-underline-offset: 5px;
-}
 .ticket-empty {
   background: var(--blue);
   color: white;
@@ -728,10 +677,6 @@
   }
   .registration-result {
     grid-column: 1/-1;
-  }
-  .incoming-entry {
-    margin-left: 0;
-    padding: 10px 0;
   }
   .stage-footer {
     column-gap: 18px;

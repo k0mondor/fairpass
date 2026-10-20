@@ -1,13 +1,13 @@
-# 同学 A / 前端 Coding Agent 任务
+# 前端开发与验收清单
 
-先阅读 [共同契约](SHARED_CONTRACT.md)和 [HTTP API v1](API_V1.md)。`frontend/` 已有三角色页面和可运行的界面预览；后端/链码接通后仍需完成真实联调。仅通过 `/api/v1` 与后端交互，不自行计算抽签结果或票的有效性；页面以 API 返回状态为准。
+先阅读 [共同契约](SHARED_CONTRACT.md)和 [HTTP API v1](API_V1.md)。`frontend/` 已有三角色页面、界面预览与真实API接入，后端和链码已有实现。本清单保留开发职责与验收标准，不作为本轮实际测试结果。仅通过 `/api/v1` 与后端交互，不自行计算抽签结果或票的有效性；页面以 API 返回状态为准。
 
 
 ## 页面与功能清单
 
 | 页面 | 必做内容 | 对应接口 |
 |---|---|---|
-| 测试账号登录 | 选择预置账号、保存 token、展示当前角色、退出 | `POST /auth/demo-login`, `GET /auth/me` |
+| 测试账号登录 | 选择角色并输入账号密码、保存token、展示用户名、退出 | `POST /auth/demo-login`, `GET /auth/me` |
 | 活动列表 | 标题、时间、地点、报名截止、状态、剩余阶段提示、分页 | `GET /events` |
 | 活动详情 | 活动信息、报名按钮、本人报名和中签状态、领票按钮 | `GET /events/:id`, `POST /events/:id/registrations`, `POST /events/:id/tickets/claim` |
 | 我的报名 | 每个活动的报名、中签、未中签状态 | `GET /me/registrations` |
@@ -30,7 +30,7 @@
 - 检票成功使用 `POST /tickets/:id/redeem` 返回的 `{ticket,operation}`；operation 必须是本次已确认交易，不以另查“最新一条”推断。
 - “链上记录”用清晰的时间线或表格，默认显示 20 条，支持类型筛选；主办方活动管理详情应显示最近 3 条交易预览。
 - 列表有加载、空状态和错误重试；手机宽度下学生票和检票页可正常使用。
-- 在后端接口尚未完成时，使用与共同契约完全一致的 mock 数据；联调时切回真实 API，不把 mock 放进最终演示路径。
+- 界面预览和Mock仅用于开发；真实联调接入API并启用后端real模式，不把模拟数据放进最终上链证据。
 
 ## 交付和验收
 

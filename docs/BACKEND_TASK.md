@@ -1,6 +1,6 @@
-# 后端同学开发清单
+# 后端开发与验收清单
 
-工作目录 `backend/`。先读 [共同契约](SHARED_CONTRACT.md) 与 [HTTP API v1](API_V1.md)。这两份文档是联调验收依据。当前目录只有占位文件；下面均为待开发项。后端负责 SQLite 业务数据、权限、抽签和 Fabric Gateway 接入，并主持三端联调。
+工作目录 `backend/`。先读 [共同契约](SHARED_CONTRACT.md) 与 [HTTP API v1](API_V1.md)。这两份文档是联调验收依据。本清单保留开发阶段的职责与验收标准；当前仓库已有对应实现，条目不表示功能尚未开发，也不表示已完成本轮验收。实际启动与执行结果分别以模块README和验收记录为准。后端负责 SQLite 业务数据、权限、抽签和 Fabric Gateway 接入，并主持三端联调。
 
 ## 交付顺序
 
@@ -18,7 +18,7 @@
 
 - 建议按 `src/routes`、`src/services`、`src/db`、`src/fabric`、`src/middleware` 拆分。路由解析/校验并包装响应；服务层管理状态、权限和恢复；Gateway adapter 封装提交、commit 状态及查询。提供 `.env.example`，不提交私钥、证书、真实数据库、token 或本机环境文件。
 - 表至少有 `users`、`events`、`registrations`、`draw_winners`、`draw_attempts`、`idempotency_keys`，字段和约束见共同契约第 6 节。`registrations(event_id,user_id)` 唯一；`draw_attempts(event_id)` 唯一。幂等记录保存 actor、请求摘要、eventId、执行状态、已确认 txId 和时间。为主办方、活动状态、报名和分页排序建索引。启用 SQLite 外键；写操作用事务和锁避免并发抽签/创建双推进。
-- 预置至少 1 个主办方、1 个检票员、3 个学生，并给前端 account 名称。服务端签发/验证有到期时间的演示 token。身份与角色只来自 token；`toUserId` 是转让目标，必须查到且为学生。生产身份认证不属于本课程范围。
+- 预置至少 1 个主办方、1 个检票员、3 个学生，并给前端 account 名称。服务端签发/验证有到期时间的演示 token。身份与角色只来自 token；HTTP的`toAccount`是接收方唯一用户名，查到学生后解析为内部toUserId。生产身份认证不属于本课程范围。
 - 校验 UUID、64 位票 ID、字符串长度、整数、ISO 时间、枚举和请求形状；按 [API v1 错误表](API_V1.md#7-状态码与稳定错误码) 返回。日志带 requestId、actorId、资源 ID、txId 和耗时；不得记录 token、私钥或把异常堆栈返回浏览器。
 
 ## 2. 全部 HTTP 路由

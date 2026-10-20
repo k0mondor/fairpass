@@ -72,7 +72,7 @@ DOCKER_SOCK=/var/run/docker.sock docker compose -f compose/compose-test-net.yaml
 | `PublishDraw` | `eventId, winnerIdsJson, winnersHash` | 写 | 只能发布一次，开始前才能发布 |
 | `ClaimTicket` | `eventId, winnerId` | 写 | 开始前，中签者领票 |
 | `TransferTicket` | `ticketId, fromUserId, toUserId` | 写 | 每张票最多一次，开始前 |
-| `RedeemTicket` | `ticketId, inspectorId` | 写 | 仅在 `startAt <= 当前 < endAt` 内 |
+| `RedeemTicket` | `ticketId, inspectorId` | 写 | 仅在 `startAt - 30分钟 <= 当前 < endAt` 内 |
 | `GetTicket` | `ticketId` | 读 | |
 | `GetTicketsByOwner` | `ownerId` | 读 | 无票时返回 `[]` |
 | `GetOperationsByEvent` | `eventId` | 读 | 按时间从旧到新 |

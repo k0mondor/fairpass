@@ -165,7 +165,16 @@ const createContext = (): TestContext => {
 const login = async (context: TestContext, account: string) => {
   const response = await request(context.app)
     .post("/api/v1/auth/demo-login")
-    .send({ account });
+    .send({
+      account,
+      password: "123456",
+      role:
+        account === "morgan" || account.startsWith("organizer")
+          ? "ORGANIZER"
+          : account === "taylor"
+            ? "INSPECTOR"
+            : "STUDENT",
+    });
   expect(response.status).toBe(200);
   return response.body.data.token as string;
 };
@@ -185,7 +194,9 @@ const createRequest = (
 const countRows = (database: DatabaseConnection, table: string): number => {
   const allowed = new Set(["events", "idempotency_keys"]);
   if (!allowed.has(table)) throw new Error("Unexpected table");
-  const row = database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as {
+  const row = database
+    .prepare(`SELECT COUNT(*) AS count FROM ${table}`)
+    .get() as {
     count: number;
   };
   return row.count;
@@ -200,7 +211,7 @@ afterEach(() => {
 describe("POST /api/v1/events", () => {
   it("creates an event only after a confirmed Gateway commit", async () => {
     const context = createContext();
-    const token = await login(context, "organizer1");
+    const token = await login(context, "morgan");
 
     const response = await createRequest(
       context,
@@ -228,7 +239,9 @@ describe("POST /api/v1/events", () => {
       events: [{ eventId, organizerId, capacity: 2 }],
       operations: [{ eventId, type: "EVENT_CREATED" }],
     });
-    expect(context.idempotency.findByKey(idempotencyKeys.primary)).toMatchObject({
+    expect(
+      context.idempotency.findByKey(idempotencyKeys.primary),
+    ).toMatchObject({
       eventId,
       actorId: organizerId,
       state: "CONFIRMED",
@@ -239,8 +252,8 @@ describe("POST /api/v1/events", () => {
 
   it("requires an organizer, a UUID idempotency key, and a future deadline", async () => {
     const context = createContext();
-    const organizer = await login(context, "organizer1");
-    const student = await login(context, "student1");
+    const organizer = await login(context, "morgan");
+    const student = await login(context, "alex");
 
     const forbidden = await createRequest(
       context,
@@ -273,7 +286,7 @@ describe("POST /api/v1/events", () => {
 
   it("replays the same intent with 200 and rejects key reuse", async () => {
     const context = createContext();
-    const organizer = await login(context, "organizer1");
+    const organizer = await login(context, "morgan");
     const otherOrganizer = await login(context, "organizer2");
 
     const first = await createRequest(
@@ -312,7 +325,7 @@ describe("POST /api/v1/events", () => {
 
   it("coalesces concurrent requests into one event and one transaction", async () => {
     const context = createContext();
-    const token = await login(context, "organizer1");
+    const token = await login(context, "morgan");
 
     const responses = await Promise.all([
       createRequest(context, token, idempotencyKeys.primary),
@@ -330,7 +343,7 @@ describe("POST /api/v1/events", () => {
   it("retries once with the same event ID after a confirmed pre-submit failure", async () => {
     const context = createContext();
     context.gateway.queueFault("CreateEvent", { kind: "NETWORK" });
-    const token = await login(context, "organizer1");
+    const token = await login(context, "morgan");
 
     const response = await createRequest(
       context,
@@ -348,7 +361,7 @@ describe("POST /api/v1/events", () => {
   it("reconciles commit-unknown without submitting a second transaction", async () => {
     const context = createContext();
     context.gateway.queueFault("CreateEvent", { kind: "COMMIT_UNKNOWN" });
-    const token = await login(context, "organizer1");
+    const token = await login(context, "morgan");
 
     const response = await createRequest(
       context,
@@ -361,7 +374,9 @@ describe("POST /api/v1/events", () => {
     const snapshot = context.gateway.snapshot();
     expect(snapshot.events).toHaveLength(1);
     expect(snapshot.operations).toHaveLength(1);
-    expect(context.idempotency.findByKey(idempotencyKeys.unknown)).toMatchObject({
+    expect(
+      context.idempotency.findByKey(idempotencyKeys.unknown),
+    ).toMatchObject({
       eventId,
       state: "CONFIRMED",
       txId: snapshot.operations[0]!.txId,
@@ -372,7 +387,7 @@ describe("POST /api/v1/events", () => {
     const context = createContext();
     context.gateway.queueFault("CreateEvent", { kind: "COMMIT_UNKNOWN" });
     context.gateway.queueFault("GetEvent", { kind: "NETWORK" });
-    const token = await login(context, "organizer1");
+    const token = await login(context, "morgan");
 
     const unknown = await createRequest(
       context,
@@ -382,7 +397,9 @@ describe("POST /api/v1/events", () => {
     expect(unknown.status).toBe(503);
     expect(unknown.body.error.code).toBe("FABRIC_UNAVAILABLE");
     expect(countRows(context.database, "events")).toBe(0);
-    expect(context.idempotency.findByKey(idempotencyKeys.unknown)).toMatchObject({
+    expect(
+      context.idempotency.findByKey(idempotencyKeys.unknown),
+    ).toMatchObject({
       eventId,
       state: "PENDING",
       txId: expect.stringMatching(/^mock-/),
@@ -420,7 +437,7 @@ describe("POST /api/v1/events", () => {
       prepared.input.startAt,
       prepared.input.endAt,
     ]);
-    const token = await login(context, "organizer1");
+    const token = await login(context, "morgan");
 
     const recovered = await createRequest(
       context,
@@ -431,7 +448,9 @@ describe("POST /api/v1/events", () => {
     expect(recovered.status).toBe(200);
     expect(recovered.body.data.id).toBe(eventId);
     expect(context.gateway.snapshot().operations).toHaveLength(1);
-    expect(context.idempotency.findByKey(idempotencyKeys.recovery)).toMatchObject({
+    expect(
+      context.idempotency.findByKey(idempotencyKeys.recovery),
+    ).toMatchObject({
       state: "CONFIRMED",
       txId: expect.stringMatching(/^mock-/),
     });
@@ -458,7 +477,7 @@ describe("POST /api/v1/events", () => {
       prepared.input.startAt,
       prepared.input.endAt,
     ]);
-    const token = await login(context, "organizer1");
+    const token = await login(context, "morgan");
 
     const response = await createRequest(
       context,

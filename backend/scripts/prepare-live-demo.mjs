@@ -39,13 +39,19 @@ async function request(path, token, body, headers = {}) {
   return result.data;
 }
 const organizer = await request("/auth/demo-login", undefined, {
-  account: "organizer1",
+  account: "morgan",
+  password: process.env.DEMO_LOGIN_PASSWORD ?? "123456",
+  role: "ORGANIZER",
 });
 const first = await request("/auth/demo-login", undefined, {
-  account: "student1",
+  account: "alex",
+  password: process.env.DEMO_LOGIN_PASSWORD ?? "123456",
+  role: "STUDENT",
 });
 const second = await request("/auth/demo-login", undefined, {
-  account: "student2",
+  account: "jamie",
+  password: process.env.DEMO_LOGIN_PASSWORD ?? "123456",
+  role: "STUDENT",
 });
 assert.notEqual(first.user.id, second.user.id);
 if (!state || fresh) {

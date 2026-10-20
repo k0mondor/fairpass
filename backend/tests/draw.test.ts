@@ -143,9 +143,8 @@ const createContext = async (
 
   const auth = new AuthService(
     users,
-    new DemoTokenService(
-      authConfig,
-      () => Math.floor(clock.now.getTime() / 1000),
+    new DemoTokenService(authConfig, () =>
+      Math.floor(clock.now.getTime() / 1000),
     ),
   );
   const ledger = new GatewayLedgerReadService(gateway);
@@ -204,10 +203,22 @@ const createContext = async (
   };
 };
 
-const login = async (context: TestContext, account: string): Promise<string> => {
+const login = async (
+  context: TestContext,
+  account: string,
+): Promise<string> => {
   const response = await request(context.app)
     .post("/api/v1/auth/demo-login")
-    .send({ account });
+    .send({
+      account,
+      password: "123456",
+      role:
+        account === "morgan" || account.startsWith("organizer")
+          ? "ORGANIZER"
+          : account === "taylor"
+            ? "INSPECTOR"
+            : "STUDENT",
+    });
   expect(response.status).toBe(200);
   return response.body.data.token as string;
 };
@@ -237,9 +248,9 @@ afterEach(() => {
 describe("durable draw HTTP flow", () => {
   it("enforces organizer role and event ownership while hiding unconfirmed data", async () => {
     const context = await createContext();
-    const organizer = await login(context, "organizer1");
+    const organizer = await login(context, "morgan");
     const otherOrganizer = await login(context, "organizer2");
-    const student = await login(context, "student1");
+    const student = await login(context, "alex");
 
     const open = await getRequest(context, organizer);
     expect(open.status).toBe(200);
@@ -261,7 +272,7 @@ describe("durable draw HTTP flow", () => {
     const context = await createContext({
       now: new Date("2026-09-29T00:59:59.999Z"),
     });
-    const organizer = await login(context, "organizer1");
+    const organizer = await login(context, "morgan");
 
     const early = await publishRequest(context, organizer);
     expect(early.status).toBe(422);
@@ -316,7 +327,7 @@ describe("durable draw HTTP flow", () => {
 
   it("rejects the exact activity start boundary", async () => {
     const context = await createContext({ now: new Date(startAt) });
-    const organizer = await login(context, "organizer1");
+    const organizer = await login(context, "morgan");
 
     const response = await publishRequest(context, organizer);
     expect(response.status).toBe(422);
@@ -326,7 +337,7 @@ describe("durable draw HTTP flow", () => {
 
   it("publishes an empty draw with the canonical empty-array hash", async () => {
     const context = await createContext({ registrationUserIds: [] });
-    const organizer = await login(context, "organizer1");
+    const organizer = await login(context, "morgan");
 
     const response = await publishRequest(context, organizer);
     expect(response.status).toBe(200);
@@ -342,7 +353,7 @@ describe("durable draw HTTP flow", () => {
       capacity: 3,
       registrationUserIds: [studentIds[0]],
     });
-    const organizer = await login(context, "organizer1");
+    const organizer = await login(context, "morgan");
 
     const response = await publishRequest(context, organizer);
     expect(response.status).toBe(200);
@@ -354,7 +365,7 @@ describe("durable draw HTTP flow", () => {
 
   it("publishes at most one winner snapshot under concurrent requests", async () => {
     const context = await createContext();
-    const organizer = await login(context, "organizer1");
+    const organizer = await login(context, "morgan");
 
     const responses = await Promise.all([
       publishRequest(context, organizer),
@@ -365,16 +376,20 @@ describe("durable draw HTTP flow", () => {
     expect(["DRAW_IN_PROGRESS", "ALREADY_DRAWN"]).toContain(
       conflict.body.error.code,
     );
-    expect(context.database.prepare(
-      "SELECT COUNT(*) AS count FROM draw_attempts WHERE event_id = ?",
-    ).get(eventId)).toEqual({ count: 1 });
+    expect(
+      context.database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM draw_attempts WHERE event_id = ?",
+        )
+        .get(eventId),
+    ).toEqual({ count: 1 });
     expect(drawOperations(context)).toHaveLength(1);
   });
 
   it("reconciles commit-unknown without publishing a second transaction", async () => {
     const context = await createContext();
     context.gateway.queueFault("PublishDraw", { kind: "COMMIT_UNKNOWN" });
-    const organizer = await login(context, "organizer1");
+    const organizer = await login(context, "morgan");
 
     const response = await publishRequest(context, organizer);
     expect(response.status).toBe(200);
@@ -396,7 +411,7 @@ describe("durable draw HTTP flow", () => {
     });
     context.gateway.queueFault("PublishDraw", { kind: "COMMIT_UNKNOWN" });
     context.gateway.queueFault("GetEvent", { kind: "NETWORK" });
-    const organizer = await login(context, "organizer1");
+    const organizer = await login(context, "morgan");
 
     const unknown = await publishRequest(context, organizer);
     expect(unknown.status).toBe(503);
@@ -446,7 +461,7 @@ describe("durable draw HTTP flow", () => {
       JSON.stringify([studentIds[0]]),
       hashIds([studentIds[0]]),
     ]);
-    const organizer = await login(context, "organizer1");
+    const organizer = await login(context, "morgan");
 
     const response = await publishRequest(context, organizer);
     expect(response.status).toBe(503);

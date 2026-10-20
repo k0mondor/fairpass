@@ -8,7 +8,7 @@
 - 后端：Node.js + TypeScript + Express；SQLite 保存普通业务数据；Fabric Gateway 调用链码。选题文件允许 PostgreSQL/MySQL，当前仓库 README 选择 SQLite，v1 以 SQLite 为准。
 - Fabric：官方 test-network、TypeScript 链码；链上保存活动票数、中签资格、票权、转让和核销状态及操作记录。报名个人信息不上链。
 - 用户、活动和报名 ID 是 UUID 字符串；票 ID 是按第 3 节生成的 SHA-256 十六进制字符串；操作 ID 是 Fabric `txId`。时间是 UTC ISO 8601（如 `2026-10-01T10:00:00Z`）；人数和票数是非负整数。API JSON 使用 camelCase。
-- 本地演示使用预置账号和 `Authorization: Bearer <demo-token>`。前端不得通过传 `userId` 或 `role` 选择身份；后端从 token 解析。生产身份认证不在课程范围内。
+- 本地演示使用预置账号、密码和角色进行登录，成功后使用 `Authorization: Bearer <demo-token>`。前端不得通过传 `userId` 或 `role` 选择身份；后端从 token 解析。生产身份认证不在课程范围内。
 - Fabric Gateway 使用平台服务身份提交交易。后端必须验证角色和操作人；链码验证票务规则。此信任边界应在答辩中说明。
 
 ## 2. 角色与业务规则
@@ -22,7 +22,7 @@
 - 抽签只执行一次。后端使用加密安全随机数打乱报名用户 ID，再取 `min(capacity, 报名人数)` 名。中奖名单按 userId 排序后计算 SHA-256 哈希，用于记录和核对；不要把随机 seed 或名单中的个人信息写进公开页面。
 - 中签不等于持票。中签者在 `startAt` 之前领取；每人每活动最多领取一张。链码须同时检查资格、重复领取及发行总量。
 - 票一旦转让，原持有人失去使用权；接收人必须是已存在的学生账号，不要求曾报名或中签。每张票最多转让一次，只能在 `startAt` 之前转让，已核销票不能转让。转让后 `originalWinnerId` 不变，`ownerId` 改变。
-- 检票仅在 `startAt <= 当前时间 < endAt` 执行；每张票只可核销一次。后端判定时间和检票员权限，链码再次拒绝重复核销。
+- 检票仅在 `startAt - 30分钟 <= 当前时间 < endAt` 执行；每张票只可核销一次。后端判定时间和检票员权限，链码再次拒绝重复核销。
 - v1 票码内容为 `ticketId`，用于现场测试扫码或手动输入；它不是生产级防盗票凭证。页面显示票当前持有人和状态，检票员由后端检查权限。
 
 ## 3. 共享数据模型
@@ -60,7 +60,7 @@ interface Operation {
 }
 ```
 
-`Event` 的计数字段由后端汇总：报名数来自 SQLite；中签数来自已确认抽签名单；发行、核销数来自链上查询或经链上确认后的本地投影。不得以未经确认的本地写入增加链上计数。`Ticket.id` 在链码领取时确定为 `SHA256("ticket:" + eventId + ":" + originalWinnerId)` 的 64 位小写十六进制字符串，确保重试得到同一 ID。`Operation.id` 使用 Fabric `txId`；`EVENT_CREATED` 等记录可在后端查询时融合展示，且须标记链上交易 ID。
+`Event` 的计数字段由后端汇总：报名数来自 SQLite；中签数来自已确认抽签名单；发行、核销数在当前实现中通过Gateway读取链上查询结果。不得以未经确认的本地写入增加链上计数。`Ticket.id` 在链码领取时确定为 `SHA256("ticket:" + eventId + ":" + originalWinnerId)` 的 64 位小写十六进制字符串，确保重试得到同一 ID。`Operation.id` 使用 Fabric `txId`；`EVENT_CREATED` 等记录可在后端查询时融合展示，且须标记链上交易 ID。
 
 **链上展示边界**：`Operation` 列表只显示已确认的 Fabric 交易（建活动、发布抽签、领票、转让、核销）。报名保存在 SQLite，页面标为“平台记录”，不能标为“上链”。`channelName` 和 `chaincodeName` 从 Gateway 配置补充；`blockNumber` 只有在后端确实查询到区块号时填值，否则为 `null`，前端显示“未提供”，不得编造。交易成功意味着 Fabric 提交确认，不能仅以提交请求已发出作为“上链成功”。
 
@@ -72,20 +72,20 @@ HTTP 状态：400 参数错误；401 未登录；403 角色或资源权限不足
 
 | 方法与路径 | 角色 | 请求 | `data` / 说明 |
 |---|---|---|---|
-| `POST /auth/demo-login` | 公开 | `{ "account": "student1" }` | `{ token, user }`；仅允许预置账号 |
+| `POST /auth/demo-login` | 公开 | `{ "account": "alex", "password": "123456", "role": "STUDENT" }` | `{ token, user }`；仅允许预置账号 |
 | `GET /auth/me` | 登录 | 无 | `User` |
 | `GET /events` | 登录 | 查询 `page,pageSize,status` | `Event[]`；学生可见全部活动 |
 | `GET /me/events` | 主办方 | 查询 `page,pageSize,status` | 本人创建的 `Event[]`；`total` 只统计本人活动 |
-| `GET /events/:eventId` | 登录 | 无 | `Event`，附加 `myRegistration: Registration|null`、`myTicket: Ticket|null`；非学生均为 null |
+| `GET /events/:eventId` | 登录 | 无 | `Event`，附加 `myRegistration: Registration|null`、`myTicket: Ticket|null`、`myTicketClaimed: boolean`；非学生报名/门票为null，领取标记为false |
 | `POST /events` | 主办方 | `CreateEventInput`；请求头 `Idempotency-Key: <uuid>` | `Event`；201，创建 SQLite 记录及链上活动；重复提交同一 key 返回同一活动 |
 | `POST /events/:eventId/registrations` | 学生 | `{}` | `Registration`；201 |
-| `GET /me/registrations` | 学生 | 分页参数 | `Registration[]`，每项附 `event: Event` |
+| `GET /me/registrations` | 学生 | 分页参数 | `Registration[]`，每项附 `event: Event` 和 `ticketClaimed: boolean` |
 | `POST /events/:eventId/draw` | 该活动主办方 | `{}` | `{ eventId, winnerCount, winnersHash, txId }`；只执行一次 |
 | `GET /events/:eventId/draw` | 该活动主办方 | 无 | `{ status, registrationCount, winnerCount, winnersHash, winners: User[] }`；仅发布成功后返回名单 |
 | `POST /events/:eventId/tickets/claim` | 中签学生 | `{}` | `Ticket`；201 |
 | `GET /me/tickets` | 学生 | 分页参数 | `Ticket[]`，每项附 `event: Event`；包含当前持有的转入票 |
 | `GET /tickets/:ticketId` | 持有人、该活动主办方、检票员 | 无 | `Ticket`，附 `event: Event` |
-| `POST /tickets/:ticketId/transfer` | 当前持有人 | `{ "toUserId": "uuid" }` | 更新后的 `Ticket` |
+| `POST /tickets/:ticketId/transfer` | 当前持有人 | `{ "toAccount": "jamie" }` | 更新后的 `Ticket` |
 | `POST /tickets/:ticketId/redeem` | 检票员 | `{}` | `{ ticket: Ticket, operation: Operation }`；只在交易确认后返回，`operation.txId` 必有值 |
 | `GET /events/:eventId/operations` | 该活动主办方 | 分页参数；可选 `type` | 已确认的链上 `Operation[]`，按时间倒序；用于活动“链上记录”页 |
 | `GET /tickets/:ticketId/operations` | 当前持有人、该活动主办方、检票员 | 分页参数 | 已确认的链上 `Operation[]`，按时间倒序；用于电子票时间线 |
@@ -122,7 +122,7 @@ Content-Type: application/json
 | `PublishDraw` | `eventId, winnerIdsJson, winnersHash` | `ChainEvent` | 仅一次、去重、中奖人数不超过容量；原子写入资格 |
 | `ClaimTicket` | `eventId, winnerId` | `Ticket` | 资格存在、未领过、未超发、活动未开始 |
 | `TransferTicket` | `ticketId, fromUserId, toUserId` | `Ticket` | 当前持有人、未核销、未开始、最多一次、不能转给自己；接收人存在由后端检查 |
-| `RedeemTicket` | `ticketId, inspectorId` | `Ticket` | 未核销、活动正在进行；检票员角色由后端检查 |
+| `RedeemTicket` | `ticketId, inspectorId` | `Ticket` | 未核销、已到活动开始前30分钟且未结束；检票员角色由后端检查 |
 | `GetEvent` | `eventId` | `ChainEvent` | 存在 |
 | `GetTicket` | `ticketId` | `Ticket` | 存在 |
 | `GetTicketsByOwner` | `ownerId` | `Ticket[]` | 用 owner 索引查询，转让时更新索引 |
@@ -155,4 +155,18 @@ idempotency_keys(key PK, actor_id, request_hash, event_id, state, created_at)
 4. 检票员核销转入票；再次核销被拒；操作记录能看到领票、转让、核销及 txId。
 5. 非主办方不能抽签；学生不能核销；非持有人不能转让；过期报名、领票和转让均被拒。
 
-现场演示准备两个活动：一个尚未开始，用于报名、抽签、领票、转让；另一个正在进行且已提前领票，用于检票。Fabric 使用交易时间，因此不能靠修改后端时钟绕过链码时间检查。
+现场演示准备两个活动：一个尚未开始，用于报名、抽签、领票、转让；另一个已进入开场前30分钟验票窗口且已领票，用于检票。Fabric 使用交易时间，因此不能靠修改后端时钟绕过链码时间检查。
+
+## 8. 领取状态与演示数据补充
+
+`GET /me/registrations` 的每项附 `ticketClaimed: boolean`；`GET /events/:eventId` 附 `myTicketClaimed: boolean`。是否曾领取以原中签者的确定性票ID查询Fabric，不以当前owner列表推断。门票转出后，原中签者仍已用过领票资格，页面显示“已领取并转出”，不再提供重复领取入口；查询不可用时返回错误，不当成未领取。
+
+真实本地环境在backend目录运行 `npm run demo:interactive` 准备开放报名、已中签未领取和现场核销三组体验。核销票会先正常领取，再等待真实活动开始，留给操作者核销；默认窗口4小时。重复运行复用尚可操作的数据，已消耗或过期则新建，`--new`强制新增一组。脚本保留所有历史，不改数据库/链上既有状态，也不关闭业务校验。
+
+转让HTTP请求使用`toAccount`（接收方登录用户名），去除首尾空格并按大小写不敏感的唯一账号查询。后端校验为其他已存在学生后，再将对应UUID传给链码。链上ownerId和Operation.toUserId继续保存内部UUID，不保存用户名作为票权主键。
+
+## 9. 开场前验票规则
+
+验票窗口为 `[startAt - 30分钟, endAt)`，开放时刻包含在内、结束时刻不包含。前端、后端、Mock和Fabric链码使用同一提前量。门票已经核销后即使活动尚未开始也不能转让或再次核销。领取和转让仍须在开场前进行，且仅限未核销票。
+
+真实 Fabric 模式下，历史查询通过 QSCC `GetBlockByTxID(channelName, txId)` 获取区块头编号，旧交易同样适用；查询失败返回503。Mock模式仍返回 `blockNumber: null`。区块号按交易ID缓存，提交确认时也会填充缓存。

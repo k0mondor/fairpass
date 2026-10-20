@@ -1,6 +1,6 @@
 # FairPass HTTP API v1
 
-本规范供前端、后端和 Fabric 联调。业务规则、共享类型和链码方法以 [共同契约](SHARED_CONTRACT.md) 为准；本文件明确 HTTP 入参、响应、权限与失败语义。当前 `backend/` 和 `blockchain/` 尚未实现，下面是**待实现的契约**，不是已上线接口。
+本规范供前端、后端和 Fabric 联调。业务规则、共享类型和链码方法以 [共同契约](SHARED_CONTRACT.md) 为准；本文件明确 HTTP 入参、响应、权限与失败语义。当前仓库已实现本文所述v1接口、SQLite业务层、TypeScript链码及Mock/真实Fabric Gateway适配器。本文描述接口契约；真实上链需要运行Fabric网络并将后端设为real模式，代码实现不等同于生产上线或本轮验收通过。
 
 ## 1. 通用约定
 
@@ -9,6 +9,7 @@
 - 单体成功响应 `{ "data": T }`，列表响应 `{ "data": T[], "page": 1, "pageSize": 20, "total": 42 }`。`page`、`pageSize` 为正整数，默认 1、20，`pageSize` 最大 100；越界页返回空数组及真实 `total`。分页在权限过滤之后计算，按 `createdAt DESC, id DESC` 稳定排序；操作记录按 `occurredAt DESC, txId DESC`。未知查询参数可忽略，非法已知参数返回 400。
 - 错误响应 `{ "error": { "code": "ALREADY_REGISTERED", "message": "已报名", "requestId": "uuid" } }`。所有失败含 `requestId`，也在 `X-Request-Id` 响应头中返回；不暴露堆栈、私钥或链码内部错误。后端记录 requestId、路由、actorId、eventId/ticketId、txId 和耗时，不记录 token。
 - 列表和详情只展示已确认状态。链上写交易必须等 Gateway 提交确认成功，才返回 2xx 和交易信息。客户端超时、后端超时及 Gateway 结果不明均不代表交易失败；后端先对账，仍不确定返回 503，客户端重新查询对应资源。禁止把未确认交易当作已成功操作展示。
+- 前端普通查询及演示登录超时为12秒，其余POST写操作等待上限为180秒，以容纳背书、提交确认和后端对账。等待超过8秒显示处理中提示；超时或连接中断不自动重发写操作，应先查询状态。创建结果未知时保留表单与原Idempotency-Key，以相同内容重试核对同一次创建。
 - 浏览器跨域时后端只允许配置过的前端 origin、`Authorization`、`Content-Type`、`Idempotency-Key` 请求头和必要方法；预检请求不要求 token。
 
 ## 2. 共享响应模型
@@ -19,21 +20,21 @@
 |---|---|
 | `User` | `id, displayName, role`；`role` 为 `STUDENT / ORGANIZER / INSPECTOR` |
 | `Event` | `id, organizerId, title, description, location, capacity, registrationDeadline, startAt, endAt, status, registrationCount, winnerCount, issuedCount, redeemedCount, createdAt` |
-| `Registration` | `id, eventId, userId, status, createdAt`；`GET /me/registrations` 的每项增加 `event: Event` |
+| `Registration` | `id, eventId, userId, status, createdAt`；`GET /me/registrations` 的每项增加 `event: Event` 和 `ticketClaimed: boolean`（按原中签者确定性票ID查询链上，转出后仍为true） |
 | `Ticket` | `id, eventId, originalWinnerId, ownerId, status, transferCount, claimedAt, redeemedAt`；票列表和票详情增加 `event: Event` |
 | `Operation` | `id, eventId, ticketId, type, actorId, fromUserId, toUserId, occurredAt, txId, channelName, chaincodeName, blockNumber`；`ticketId/fromUserId/toUserId/blockNumber` 可为 `null`。`id === txId`；仅表示已确认交易 |
 
-`Event.status` 为 `OPEN / DRAWING / DRAWN / FINISHED`。`FINISHED` 在 `endAt` 到达后读出时体现，即使数据库尚未由定时任务更新也必须阻止过期操作。`registrationCount` 来自 SQLite，`winnerCount` 来自已确认抽签；`issuedCount` 与 `redeemedCount` 来自链上或确认后的投影。`DRAWING` 时不可泄露暂存中签名单。
+`Event.status` 为 `OPEN / DRAWING / DRAWN / FINISHED`。`FINISHED` 在 `endAt` 到达后读出时体现，即使数据库尚未由定时任务更新也必须阻止过期操作。`registrationCount` 来自 SQLite，`winnerCount` 来自已确认抽签；`issuedCount` 与 `redeemedCount` 当前通过Gateway读取链上计数。`DRAWING` 时不可泄露暂存中签名单。
 
 ## 3. 身份与活动
 
 | 方法与路径 | 权限 | 请求 | 成功状态与 `data` | 主要失败 |
 |---|---|---|---|---|
-| `POST /auth/demo-login` | 公开 | `{ "account": "student1" }`，仅预置账号 | 200 `{ token, user: User }` | 400 字段无效；401 `UNAUTHENTICATED` 账号不存在 |
+| `POST /auth/demo-login` | 公开 | `{ "account": "alex", "password": "123456", "role": "STUDENT" }`，仅预置账号 | 200 `{ token, user: User }` | 400 字段无效；401 `UNAUTHENTICATED` 账号、密码或身份不匹配 |
 | `GET /auth/me` | 已登录 | 无 | 200 `User` | 401 |
 | `GET /events` | 已登录 | `page,pageSize,status?` | 200 `Event[]` 分页；所有可公开浏览的活动 | 400 无效筛选 |
 | `GET /me/events` | 主办方 | `page,pageSize,status?` | 200 `Event[]` 分页；仅 token 所属主办方的活动，`total` 也是其活动数 | 403 |
-| `GET /events/:eventId` | 已登录 | UUID 路径参数 | 200 `Event` 加 `myRegistration: Registration|null, myTicket: Ticket|null`；非学生均为 null。`myTicket` 只代表当前持有票 | 404 |
+| `GET /events/:eventId` | 已登录 | UUID 路径参数 | 200 `Event` 加 `myRegistration: Registration|null, myTicket: Ticket|null, myTicketClaimed: boolean`；非学生的报名与门票为null、领取标记为false。`myTicket` 只代表当前持有票；`myTicketClaimed` 表示本人中签资格是否已领过票，转出后仍为true；非学生为false | 404 |
 | `POST /events` | 主办方 | `Idempotency-Key: <uuid>`；`CreateEventInput` | 201 `Event`；同 key 同请求重放返回同一活动和 200 | 400/403/409/422/503 |
 
 `GET /events` 与 `GET /me/events` 的 `status` 只接受四个 `EventStatus` 枚举值。列表筛选、计数和分页必须在服务端完成；主办方列表不能先分页全部活动再由前端筛选。
@@ -74,12 +75,12 @@
 |---|---|---|---|---|
 | `GET /me/tickets` | 学生 | `page,pageSize` | 200 带 `event` 的当前持有 `Ticket[]` 分页，包括转入票，转出后不再出现 | 403 |
 | `GET /tickets/:ticketId` | 当前持有人、活动主办方、检票员 | 64 位 hex 票 ID | 200 带 `event` 的 `Ticket` | 403/404 |
-| `POST /tickets/:ticketId/transfer` | 当前持有人 | `{ "toUserId": "<student UUID>" }` | 200 更新后的 `Ticket`；`ownerId` 立即变为接收人 | 403/404/409/422/503 |
+| `POST /tickets/:ticketId/transfer` | 当前持有人 | `{ "toAccount": "jamie" }` | 200 更新后的 `Ticket`；`ownerId` 立即变为接收人 | 403/404/409/422/503 |
 | `POST /tickets/:ticketId/redeem` | 检票员 | `{}` | 200 `{ ticket: Ticket, operation: Operation }`；`operation.type` 为 `TICKET_REDEEMED`，`txId` 必有值 | 403/404/409/422/503 |
 
 转让接收人必须是存在的**其他**学生账号；不用曾经报名。票必须 `ACTIVE`、`transferCount === 0` 且 `now < startAt`。已转让的原持有人不再有票详情/记录权限（活动主办方与检票员除外）。`originalWinnerId` 不变。无待接受状态，转让一经链上确认即改变持有人；页面的“转入邀请”是未来功能提案，不属于 v1。
 
-检票要求 `startAt <= now < endAt` 且票为 `ACTIVE`。成功响应必须把更新票和**同一笔已确认核销交易**的 `Operation` 一起返回，便于成功页立即显示交易 ID；不得通过“另查最新操作记录”猜测本次交易。重复核销返回 `409 ALREADY_REDEEMED`。当请求超时，客户端先查 `GET /tickets/:ticketId`，若票已核销，再看操作记录核对交易；未能确认时不显示放行成功。票码目前仅为 ticketId，属于课程演示码，不能作为生产级防伪凭证。
+检票要求 `startAt - 30分钟 <= now < endAt` 且票为 `ACTIVE`。成功响应必须把更新票和**同一笔已确认核销交易**的 `Operation` 一起返回，便于成功页立即显示交易 ID；不得通过“另查最新操作记录”猜测本次交易。重复核销返回 `409 ALREADY_REDEEMED`。当请求超时，客户端先查 `GET /tickets/:ticketId`，若票已核销，再看操作记录核对交易；未能确认时不显示放行成功。票码目前仅为 ticketId，属于课程演示码，不能作为生产级防伪凭证。
 
 ## 6. 链上操作记录
 
@@ -165,3 +166,5 @@ Content-Type: application/json
 ```
 
 联调验收按 [共同契约第 7 节](SHARED_CONTRACT.md#7-三层联调验收)；重点再检查主办方两页分页总数一致、抽签中/确认后的名单可见性、转出后 owner 索引、检票返回交易 ID、Gateway 超时后读状态，以及 `requestId` 能对应后端日志。
+
+转让HTTP请求使用`toAccount`（接收方登录用户名），去除首尾空格并按大小写不敏感的唯一账号查询。后端校验为其他已存在学生后，再将对应UUID传给链码。链上ownerId和Operation.toUserId继续保存内部UUID，不保存用户名作为票权主键。

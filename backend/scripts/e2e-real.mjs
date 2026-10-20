@@ -19,18 +19,27 @@ async function request(path, token, body, headers = {}, expected = 200) {
   return json;
 }
 async function login(account) {
-  return (await request("/auth/demo-login", undefined, { account })).data;
+  return (
+    await request("/auth/demo-login", undefined, {
+      account,
+      password: process.env.DEMO_LOGIN_PASSWORD ?? "123456",
+      role:
+        account === "morgan"
+          ? "ORGANIZER"
+          : account === "taylor"
+            ? "INSPECTOR"
+            : "STUDENT",
+    })
+  ).data;
 }
 async function waitUntil(iso) {
   await sleep(Math.max(0, Date.parse(iso) - Date.now() + 1500));
 }
 
 console.log("Logging in as organizer, inspector and three students");
-const organizer = await login("organizer1");
-const inspector = await login("inspector1");
-const students = await Promise.all(
-  ["student1", "student2", "student3"].map(login),
-);
+const organizer = await login("morgan");
+const inspector = await login("taylor");
+const students = await Promise.all(["alex", "jamie", "casey"].map(login));
 const now = Date.now();
 const input = {
   title: `Fabric E2E ${new Date(now).toISOString()}`,
@@ -124,7 +133,7 @@ assert.equal(
 );
 const moved = (
   await request(`/tickets/${tickets[0].id}/transfer`, winners[0].token, {
-    toUserId: loser.user.id,
+    toAccount: loser.user.displayName,
   })
 ).data;
 assert.equal(moved.ownerId, loser.user.id);
@@ -146,22 +155,16 @@ assert.equal(
     await request(
       `/tickets/${moved.id}/transfer`,
       loser.token,
-      { toUserId: winners[0].user.id },
+      { toAccount: winners[0].user.displayName },
       {},
       409,
     )
   ).error.code,
   "TRANSFER_LIMIT_REACHED",
 );
-assert.equal(
-  (await request(`/tickets/${moved.id}/redeem`, inspector.token, {}, {}, 422))
-    .error.code,
-  "CHECKIN_CLOSED",
-);
 console.log(
-  `Claim and transfer confirmed; waiting for check-in ${input.startAt}`,
+  "Claim and transfer confirmed; redeeming during the pre-event check-in window",
 );
-await waitUntil(input.startAt);
 for (const ticket of tickets) {
   const redeemed = (
     await request(`/tickets/${ticket.id}/redeem`, inspector.token, {})

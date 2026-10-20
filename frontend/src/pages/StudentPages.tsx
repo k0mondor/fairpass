@@ -4,7 +4,6 @@ import type {
   EventDetail,
   Operation,
   Registration,
-  Ticket,
 } from "../api/client";
 import "./student-pages.css";
 
@@ -13,14 +12,14 @@ export const dateLabel = (value: string) =>
     month: "long",
     day: "numeric",
     year: "numeric",
-    timeZone: "UTC",
+    timeZone: "Asia/Hong_Kong",
   }).format(new Date(value));
 export const timeLabel = (value: string) =>
   new Intl.DateTimeFormat("zh-CN", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-    timeZone: "UTC",
+    timeZone: "Asia/Hong_Kong",
   }).format(new Date(value));
 
 export const operationLabel = (type: Operation["type"]) =>
@@ -182,8 +181,6 @@ export function EventsPage({
 
 export function EventDetailPage({
   event,
-  registration,
-  ticket,
   artwork,
   busy,
   error,
@@ -193,8 +190,6 @@ export function EventDetailPage({
   onTickets,
 }: {
   event: EventDetail;
-  registration: Registration | null;
-  ticket: Ticket | null;
   artwork: ReactNode;
   busy: boolean;
   error: string;
@@ -203,8 +198,9 @@ export function EventDetailPage({
   onClaim: () => void;
   onTickets: () => void;
 }) {
-  const registered = registration ?? event.myRegistration;
-  const held = ticket ?? event.myTicket;
+  // Detail data is freshly fetched; explicit null must also override old lists.
+  const registered = event.myRegistration;
+  const held = event.myTicket;
   const beforeStart = Date.now() < new Date(event.startAt).getTime();
   const canRegister =
     event.status === "OPEN" &&
@@ -235,6 +231,10 @@ export function EventDetailPage({
               <button className="blue-action" onClick={onTickets}>
                 查看我的门票 ↗
               </button>
+            ) : event.myTicketClaimed ? (
+              <p className="detail-decision">
+                门票已领取并转出，不能重复领取。
+              </p>
             ) : registered?.status === "WON" && beforeStart ? (
               <button className="blue-action" disabled={busy} onClick={onClaim}>
                 {busy ? "正在领取…" : "领取门票"}
@@ -271,7 +271,7 @@ export function EventDetailPage({
             <dd>
               {dateLabel(event.startAt)}
               <br />
-              {timeLabel(event.startAt)} – {timeLabel(event.endAt)} UTC
+              {timeLabel(event.startAt)} – {timeLabel(event.endAt)} UTC+8
             </dd>
           </div>
           <div>
@@ -282,7 +282,7 @@ export function EventDetailPage({
             <dt>报名截止</dt>
             <dd>
               {dateLabel(event.registrationDeadline)} ·{" "}
-              {timeLabel(event.registrationDeadline)} UTC
+              {timeLabel(event.registrationDeadline)} UTC+8
             </dd>
           </div>
           <div>
@@ -354,6 +354,7 @@ export function ApplicationsPage({
               if (!event) return null;
               const claimable =
                 registration.status === "WON" &&
+                !registration.ticketClaimed &&
                 !ticketEventIds.includes(event.id) &&
                 Date.now() < new Date(event.startAt).getTime();
               return (
@@ -385,7 +386,13 @@ export function ApplicationsPage({
                     )}
                     <p>
                       {registration.status === "WON"
-                        ? "请在活动开始前领取门票。"
+                        ? ticketEventIds.includes(event.id)
+                          ? "门票已领取，可在“我的门票”查看。"
+                          : registration.ticketClaimed
+                            ? "门票已领取并转出，不能重复领取。"
+                            : Date.now() >= new Date(event.startAt).getTime()
+                              ? "领取时间已结束。"
+                              : "请在活动开始前领取门票。"
                         : registration.status === "LOST"
                           ? "感谢参与，欢迎看看其他活动。"
                           : "抽签结束后，这里会显示结果。"}
@@ -433,7 +440,6 @@ export function TransferPanel({
   busy,
   error,
   recipient,
-  recipients,
   onRecipient,
   onClose,
   onSubmit,
@@ -444,7 +450,6 @@ export function TransferPanel({
   busy: boolean;
   error: string;
   recipient: string;
-  recipients?: { id: string; displayName: string }[];
   onRecipient: (value: string) => void;
   onClose: () => void;
   onSubmit: () => void;
@@ -475,35 +480,19 @@ export function TransferPanel({
         <p>
           将 <strong>{title}</strong> 的门票转让给另一位学生。
         </p>
-        <label htmlFor="recipient-id">
-          {recipients ? "接收方学生" : "接收方学生 ID"}
-        </label>
-        {recipients ? (
-          <select
-            id="recipient-id"
-            value={recipient}
-            onChange={(event) => onRecipient(event.target.value)}
-            disabled={busy}
-            autoFocus
-          >
-            <option value="" disabled>
-              选择接收方
-            </option>
-            {recipients.map((student) => (
-              <option key={student.id} value={student.id}>
-                {student.displayName}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <input
-            id="recipient-id"
-            value={recipient}
-            onChange={(event) => onRecipient(event.target.value)}
-            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-            autoFocus
-          />
-        )}
+        <label htmlFor="recipient-account">接收方用户名</label>
+        <input
+          id="recipient-account"
+          value={recipient}
+          onChange={(event) => onRecipient(event.target.value)}
+          placeholder="请输入接收方学生的用户名"
+          autoComplete="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          maxLength={50}
+          disabled={busy}
+          autoFocus
+        />
         <p className="transfer-note">
           {preview
             ? "这是界面预览。确认后不会改变门票归属。"
@@ -513,12 +502,7 @@ export function TransferPanel({
           <span>活动</span>
           <strong>{title}</strong>
           <span>接收方</span>
-          <strong>
-            {recipients?.find((student) => student.id === recipient)
-              ?.displayName ||
-              recipient ||
-              "请选择接收方"}
-          </strong>
+          <strong>{recipient.trim() || "请输入接收方用户名"}</strong>
           <span>门票</span>
           <code>{ticketId}</code>
         </div>
@@ -529,12 +513,7 @@ export function TransferPanel({
         )}
         <button
           className="blue-action"
-          disabled={
-            busy ||
-            !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-              recipient.trim(),
-            )
-          }
+          disabled={busy || !/^[A-Za-z0-9_-]{1,50}$/.test(recipient.trim())}
           onClick={onSubmit}
         >
           {busy ? "正在确认转让…" : preview ? "预览转让" : "确认转让"}
@@ -547,38 +526,41 @@ export function TransferPanel({
   );
 }
 
-export function IncomingTransfersPage({ onBack }: { onBack: () => void }) {
-  return (
-    <section className="editorial-stage incoming-stage">
-      <div className="incoming-wrap">
-        <button className="text-back" onClick={onBack}>
-          ← 我的门票
-        </button>
-        <h1>待接收门票</h1>
-        <div className="incoming-empty">
-          <h2>暂时没有待接收门票</h2>
-          <p>
-            当前版本在转让方确认后会直接变更门票归属，因此暂无“接受”或“拒绝”邀请的操作。
-          </p>
-          <button onClick={onBack}>返回我的门票 →</button>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 export function OperationTimeline({
   operations,
   preview,
+  loading = false,
+  error = "",
+  onRetry,
 }: {
   operations: Operation[];
   preview: boolean;
+  loading?: boolean;
+  error?: string;
+  onRetry?: () => void;
 }) {
   if (preview)
     return (
       <p className="record-empty">
         这是一张预览门票。连接服务后，已确认的链上记录会显示在这里。
       </p>
+    );
+  if (loading)
+    return (
+      <p className="record-empty" role="status">
+        正在查询链上记录…
+      </p>
+    );
+  if (error)
+    return (
+      <div className="record-empty" role="alert">
+        <p>链上记录查询失败：{error}</p>
+        {onRetry && (
+          <button className="quiet-action" onClick={onRetry}>
+            重试查询
+          </button>
+        )}
+      </div>
     );
   if (!operations.length)
     return <p className="record-empty">暂无这张门票的已确认链上记录。</p>;
@@ -589,7 +571,7 @@ export function OperationTimeline({
           <strong>{operationLabel(operation.type)}</strong>
           <time>
             {dateLabel(operation.occurredAt)} ·{" "}
-            {timeLabel(operation.occurredAt)} UTC
+            {timeLabel(operation.occurredAt)} UTC+8
           </time>
           <details>
             <summary>{operation.txId.slice(0, 16)}… · 查看详情</summary>

@@ -1,3 +1,4 @@
+import { CHECKIN_LEAD_MS } from "../types/domain.js";
 import { createHash } from "node:crypto";
 
 import type { DrawRepository } from "../db/repositories/draw-repository.js";
@@ -8,10 +9,7 @@ import {
   toApiError,
   type GatewayError,
 } from "../fabric/gateway-error.js";
-import type {
-  ConfirmedSubmit,
-  GatewayAdapter,
-} from "../fabric/types.js";
+import type { ConfirmedSubmit, GatewayAdapter } from "../fabric/types.js";
 import type {
   Event,
   Operation,
@@ -100,10 +98,7 @@ export class TicketService {
     const ticket = await this.findTicket(ticketId);
     if (!ticket) throw new ApiError("NOT_FOUND", "门票不存在");
     if (ticket.id !== ticketId) {
-      throw new ApiError(
-        "FABRIC_UNAVAILABLE",
-        "链上门票查询结果与请求不一致",
-      );
+      throw new ApiError("FABRIC_UNAVAILABLE", "链上门票查询结果与请求不一致");
     }
     this.assertTicketShape(ticket);
 
@@ -118,6 +113,25 @@ export class TicketService {
       ...ticket,
       event: await this.events.toEvent(eventRecord),
     };
+  }
+
+  async transferToAccount(
+    ticketId: string,
+    actorId: string,
+    toAccount: string,
+  ): Promise<TransferTicketResult> {
+    const recipient = this.users.findByAccount(toAccount.trim());
+    if (
+      !recipient ||
+      recipient.role !== "STUDENT" ||
+      recipient.id === actorId
+    ) {
+      throw new ApiError(
+        "INVALID_RECIPIENT",
+        "接收方必须是其他已存在的学生用户名",
+      );
+    }
+    return this.transfer(ticketId, actorId, recipient.id);
   }
 
   async transfer(
@@ -170,8 +184,14 @@ export class TicketService {
 
     const event = this.findLocalEvent(ticket.eventId);
     const now = this.clock().getTime();
-    if (now < Date.parse(event.startAt) || now >= Date.parse(event.endAt)) {
-      throw new ApiError("CHECKIN_CLOSED", "当前不在检票时间内");
+    if (
+      now < Date.parse(event.startAt) - CHECKIN_LEAD_MS ||
+      now >= Date.parse(event.endAt)
+    ) {
+      throw new ApiError(
+        "CHECKIN_CLOSED",
+        "当前不在验票时间内（活动开始前30分钟至活动结束）",
+      );
     }
 
     const result = await this.submitRedeem(ticket, inspectorId, true);
@@ -206,12 +226,7 @@ export class TicketService {
       );
     }
 
-    this.assertFreshClaim(
-      confirmed.result,
-      expectedTicketId,
-      eventId,
-      actorId,
-    );
+    this.assertFreshClaim(confirmed.result, expectedTicketId, eventId, actorId);
     return { ticket: confirmed.result, txId: confirmed.txId };
   }
 
@@ -244,11 +259,10 @@ export class TicketService {
   ): Promise<TransferTicketResult> {
     let confirmed: ConfirmedSubmit<Ticket>;
     try {
-      confirmed = await this.gateway.submitAndConfirm<Ticket>("TransferTicket", [
-        before.id,
-        actorId,
-        toUserId,
-      ]);
+      confirmed = await this.gateway.submitAndConfirm<Ticket>(
+        "TransferTicket",
+        [before.id, actorId, toUserId],
+      );
     } catch (error) {
       return this.handleTransferFailure(
         before,
@@ -275,11 +289,9 @@ export class TicketService {
 
     const current = await this.findTicket(before.id);
     if (!current) {
-      throw new ApiError(
-        "FABRIC_UNAVAILABLE",
-        "转让后无法确认链上门票状态",
-        { cause: error },
-      );
+      throw new ApiError("FABRIC_UNAVAILABLE", "转让后无法确认链上门票状态", {
+        cause: error,
+      });
     }
     if (this.isTransferredTicket(current, before, toUserId)) {
       return { ticket: current, txId: gatewayError.txId ?? null };
@@ -287,11 +299,9 @@ export class TicketService {
     if (allowRetryAfterUnchanged && this.isUnchangedTicket(current, before)) {
       return this.submitTransfer(before, actorId, toUserId, false);
     }
-    throw new ApiError(
-      "FABRIC_UNAVAILABLE",
-      "无法确认门票转让交易状态",
-      { cause: error },
-    );
+    throw new ApiError("FABRIC_UNAVAILABLE", "无法确认门票转让交易状态", {
+      cause: error,
+    });
   }
 
   private async submitRedeem(
@@ -316,10 +326,7 @@ export class TicketService {
 
     this.assertRedeemedTicket(confirmed.result, before);
     if (!confirmed.operation) {
-      throw new ApiError(
-        "FABRIC_UNAVAILABLE",
-        "核销确认缺少本次交易操作记录",
-      );
+      throw new ApiError("FABRIC_UNAVAILABLE", "核销确认缺少本次交易操作记录");
     }
     this.assertRedeemOperation(
       confirmed.operation,
@@ -341,11 +348,9 @@ export class TicketService {
 
     const current = await this.findTicket(before.id);
     if (!current) {
-      throw new ApiError(
-        "FABRIC_UNAVAILABLE",
-        "核销后无法确认链上门票状态",
-        { cause: error },
-      );
+      throw new ApiError("FABRIC_UNAVAILABLE", "核销后无法确认链上门票状态", {
+        cause: error,
+      });
     }
     if (this.isRedeemedTicket(current, before)) {
       if (!gatewayError.txId) {
@@ -377,11 +382,9 @@ export class TicketService {
     if (allowRetryAfterUnchanged && this.isUnchangedTicket(current, before)) {
       return this.submitRedeem(before, inspectorId, false);
     }
-    throw new ApiError(
-      "FABRIC_UNAVAILABLE",
-      "无法确认门票核销交易状态",
-      { cause: error },
-    );
+    throw new ApiError("FABRIC_UNAVAILABLE", "无法确认门票核销交易状态", {
+      cause: error,
+    });
   }
 
   private async findTicketOperation(
@@ -436,10 +439,7 @@ export class TicketService {
     for (const ticket of tickets) {
       this.assertTicketShape(ticket);
       if (ticket.ownerId !== ownerId || seen.has(ticket.id)) {
-        throw new ApiError(
-          "FABRIC_UNAVAILABLE",
-          "链上门票持有人索引不一致",
-        );
+        throw new ApiError("FABRIC_UNAVAILABLE", "链上门票持有人索引不一致");
       }
       seen.add(ticket.id);
     }
@@ -495,10 +495,7 @@ export class TicketService {
       ticket.transferCount !== 0 ||
       ticket.redeemedAt !== null
     ) {
-      throw new ApiError(
-        "FABRIC_UNAVAILABLE",
-        "领票确认结果与请求不一致",
-      );
+      throw new ApiError("FABRIC_UNAVAILABLE", "领票确认结果与请求不一致");
     }
   }
 
@@ -514,10 +511,7 @@ export class TicketService {
       ticket.eventId !== eventId ||
       ticket.originalWinnerId !== originalWinnerId
     ) {
-      throw new ApiError(
-        "FABRIC_UNAVAILABLE",
-        "链上门票与领票请求不一致",
-      );
+      throw new ApiError("FABRIC_UNAVAILABLE", "链上门票与领票请求不一致");
     }
   }
 
@@ -527,10 +521,7 @@ export class TicketService {
     toUserId: string,
   ): void {
     if (!this.isTransferredTicket(ticket, before, toUserId)) {
-      throw new ApiError(
-        "FABRIC_UNAVAILABLE",
-        "转让确认结果与请求不一致",
-      );
+      throw new ApiError("FABRIC_UNAVAILABLE", "转让确认结果与请求不一致");
     }
   }
 
@@ -552,10 +543,7 @@ export class TicketService {
 
   private assertRedeemedTicket(ticket: Ticket, before: Ticket): void {
     if (!this.isRedeemedTicket(ticket, before)) {
-      throw new ApiError(
-        "FABRIC_UNAVAILABLE",
-        "核销确认结果与请求不一致",
-      );
+      throw new ApiError("FABRIC_UNAVAILABLE", "核销确认结果与请求不一致");
     }
   }
 

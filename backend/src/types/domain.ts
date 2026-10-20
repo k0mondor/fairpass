@@ -1,3 +1,6 @@
+// Check-in opens 30 minutes before the event; see SHARED_CONTRACT.md.
+export const CHECKIN_LEAD_MS = 30 * 60 * 1000;
+
 export const roles = ["STUDENT", "ORGANIZER", "INSPECTOR"] as const;
 export type Role = (typeof roles)[number];
 
@@ -52,6 +55,7 @@ export interface Registration {
 }
 
 export interface RegistrationWithEvent extends Registration {
+  ticketClaimed: boolean;
   event: Event;
 }
 
@@ -86,6 +90,7 @@ export interface Operation {
 }
 
 export interface EventDetail extends Event {
+  myTicketClaimed: boolean;
   myRegistration: Registration | null;
   myTicket: Ticket | null;
 }

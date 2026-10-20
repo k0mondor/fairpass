@@ -72,11 +72,16 @@ export class RegistrationService {
         const eventRecord = this.events.findRecord(registration.eventId);
         const event = await this.events.toEvent(eventRecord);
         const visibleRegistration =
-          eventRecord.drawWinnersHash === null && registration.status !== "REGISTERED"
+          eventRecord.drawWinnersHash === null &&
+          registration.status !== "REGISTERED"
             ? { ...registration, status: "REGISTERED" as const }
             : registration;
 
-        return { ...visibleRegistration, event };
+        const ticketClaimed =
+          visibleRegistration.status === "WON"
+            ? await this.events.hasClaimedTicket(registration.eventId, userId)
+            : false;
+        return { ...visibleRegistration, event, ticketClaimed };
       }),
     );
 

@@ -1,6 +1,6 @@
-# 区块链同学开发清单
+# 区块链开发与验收清单
 
-工作目录 `blockchain/`。先读 [共同契约](SHARED_CONTRACT.md) 与 [HTTP API v1](API_V1.md)。当前目录只有占位文件；下面均为待开发项。负责 Fabric test-network 可复现启动、TypeScript 链码、查询索引、部署和链码测试，并与后端共同验证 Gateway commit 确认。
+工作目录 `blockchain/`。先读 [共同契约](SHARED_CONTRACT.md) 与 [HTTP API v1](API_V1.md)。本清单保留开发阶段的职责与验收标准；当前仓库已有对应实现，条目不表示功能尚未开发，也不表示已完成本轮验收。实际启动与执行结果分别以模块README和验收记录为准。负责 Fabric test-network 可复现启动、TypeScript 链码、查询索引、部署和链码测试，并与后端共同验证 Gateway commit 确认。
 
 ## 1. 链上数据与信任边界
 
@@ -26,7 +26,7 @@ Gateway 使用平台服务身份，因此链码无法独立识别真实 HTTP 角
 | `PublishDraw` | `eventId,winnerIdsJson,winnersHash` → `ChainEvent` | 未抽签且未开始；名单已排序/去重、人数 ≤ capacity；链码重算哈希；写资格、winnerCount/hash/drawPublished 和 `DRAW_PUBLISHED` |
 | `ClaimTicket` | `eventId,winnerId` → `Ticket` | 已发布、交易时间 < startAt、资格未用、issuedCount < capacity、固定 ticketId 不存在；写票/资格领取标记/owner 索引/发行数及 `TICKET_CLAIMED` |
 | `TransferTicket` | `ticketId,fromUserId,toUserId` → `Ticket` | 当前 owner、双方不同、ACTIVE、transferCount=0、交易时间 < startAt；更新 owner/次数、替换索引，写 `TICKET_TRANSFERRED`；接收人存在由后端验证 |
-| `RedeemTicket` | `ticketId,inspectorId` → `Ticket` | ACTIVE、`startAt <= txTime < endAt`；写 REDEEMED/redeemedAt、核销数加一、`TICKET_REDEEMED`；检票员角色由后端验证 |
+| `RedeemTicket` | `ticketId,inspectorId` → `Ticket` | ACTIVE、`startAt - 30分钟 <= txTime < endAt`；写 REDEEMED/redeemedAt、核销数加一、`TICKET_REDEEMED`；检票员角色由后端验证 |
 
 哈希规范与后端一致：中奖 UUID 升序、紧凑 JSON 数组（双引号、无空格），`SHA256(UTF8(json))` 的 64 位小写 hex。票 ID 为 `SHA256(UTF8("ticket:"+eventId+":"+originalWinnerId))`。txId 和时间必须取 Fabric 交易上下文，不接受调用方传入。actorId 由后端身份层担保，链码在记录中使用传参。
 

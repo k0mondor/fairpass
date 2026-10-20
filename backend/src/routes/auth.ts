@@ -11,7 +11,7 @@ export const createAuthRouter = (auth: AuthService): Router => {
 
   router.post("/demo-login", async (request, response) => {
     const body = parseInput(demoLoginBodySchema, request.body);
-    const result = await auth.login(body.account);
+    const result = await auth.login(body.account, body.password, body.role);
     sendData(response, result);
   });
 

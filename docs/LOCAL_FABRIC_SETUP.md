@@ -161,11 +161,10 @@ wsl.exe -d Ubuntu-22.04 -u root -- bash /mnt/c/Users/32349/fairpass/backend/scri
 
 ```dotenv
 VITE_API_BASE_URL=http://127.0.0.1:3000/api/v1
-VITE_DEMO_ROLE_SWITCH=true
 VITE_TICKET_MOTION=full
 ```
 
-另开 PowerShell，在 `frontend/` 执行 `npm run dev`，打开 `http://127.0.0.1:5173/`。三个角色通过真实账号登录，其中学生一、学生二可相互转让。`full` 为本次演示显式启用完整卡片动画，正常部署可设为 `system`。修改前端环境文件后重启 Vite。
+另开 PowerShell，在 `frontend/` 执行 `npm run dev`，打开 `http://127.0.0.1:5173/`。三个角色通过真实账号登录，其中alex、jamie可相互转让。`full` 为本次演示显式启用完整卡片动画，正常部署可设为 `system`。修改前端环境文件后重启 Vite。
 
 ## 5. 演示数据、检查与保存边界
 
@@ -178,7 +177,7 @@ npm run demo:campus
 npm run demo:prepare
 ```
 
-第一个命令准备四组活动及学生一持有的展示门票，约等 90 秒；第二个准备 Pass it on. 的已中签、未领取状态，约等 30 秒。两者都通过真实 API 写入 SQLite 和 Fabric。现场流程为：学生一领取 → 翻面转让给学生二 → 切换学生二查看门票和链上历史。转让立即完成。此活动约 30 天后开始，用于领取与转让；现在直接核销会因活动尚未开始而被拒绝。
+第一个命令准备四组活动及alex持有的展示门票，约等 90 秒；第二个准备 Pass it on. 的已中签、未领取状态，约等 30 秒。两者都通过真实 API 写入 SQLite 和 Fabric。现场流程为：alex领取 → 翻面转让给jamie → 切换jamie查看门票和链上历史。转让立即完成。此活动约 30 天后开始，用于领取与转让；现在直接核销会因活动尚未开始而被拒绝。
 
 需要新的未领取演示票时运行 `npm run demo:prepare -- --new`，保留旧记录。重复运行通常复用已有活动；不要删除运行清单来模拟重置。
 
@@ -194,3 +193,24 @@ npm run test:e2e:real
 这两个检查会创建各自的测试记录；后者会等待活动开始并核销测试票，不用于准备现场待领取门票。此前已验证后端 86 项测试、链码 12 项测试、前端构建，以及真实 HTTP/Fabric 领取、转让、核销流程。本次只补充环境文档，没有重跑会写入新数据的验收。
 
 Git 保存代码、图片、配置模板和演示准备逻辑；不保存 `.env`、私钥、SQLite、Docker 账本卷、`.local/` 清单或现场领取后的状态。停止后端用 Ctrl+C。暂停网络按 [后端说明](../backend/README.md#本机-wsl-联调) 使用 Compose `stop`；保留数据时不要执行 `network.sh down`。链码升级参见 [区块链说明](../blockchain/README.md#2-启动部署停止)。
+
+## 时间异常：未来截止被判定为已过期
+
+若Windows任务栏时间早于所填截止时间，后端仍返回“报名截止时间必须晚于当前时间”，先核对宿主机和WSL时间。2026-10-20本机曾相差约5分半：Windows时间服务显示未同步、来源为Local CMOS Clock，而WSL使用ntp.ubuntu.com。手动修改WSL时间会被网络校时覆盖，不能作为稳定修复。
+
+只读检查（PowerShell）：
+
+```powershell
+[DateTimeOffset]::UtcNow.ToString('o')
+wsl.exe -d Ubuntu-22.04 -u root -- date -u '+%Y-%m-%dT%H:%M:%SZ'
+w32tm.exe /query /status
+wsl.exe -d Ubuntu-22.04 -u root -- timedatectl timesync-status
+```
+
+发现Windows未同步时，优先在Windows设置“时间和语言 → 日期和时间”中启用自动设置时间并立即同步；也可在管理员终端执行 `w32tm.exe /resync /rediscover`。普通权限可能被Windows拒绝。不要关闭WSL网络校时，也不放宽后台业务时间约束。
+
+同步后重新比对两个时钟，并按校准后的当前时间填写新的报名截止、开始和结束时间。本次校准后复查两边约差2秒。时钟校准不会更改已有活动设定时间，也不会重置已经领取或核销的票。
+
+## 本机链码升级：提前验票
+
+2026-10-20将验票开放时间从活动开始改为开场前30分钟。升级通过 `blockchain/scripts/upgrade-local-wsl.sh` 查询当前sequence后递增版本并执行官方deployCC，不重建网络或删除账本。本机已部署版本 `1.0.2`、sequence `2`，Org1与Org2均已批准。部署后使用 `peer lifecycle chaincode querycommitted`核对新版本，后端亦需用启动脚本重新同步更新。旧活动自动采用新规则，既有票权与核销状态保留。

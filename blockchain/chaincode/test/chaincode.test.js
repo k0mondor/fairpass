@@ -214,10 +214,10 @@ test('4. start/end boundaries for draw, claim, transfer and redeem', async () =>
     L.setTime(startMs);
     await expectReject(L, 'TRANSFER_CLOSED', 'TransferTicket', t2, ws[1], W(51));
 
-    // redeem: closed before start, open at start, open until end, closed at end
-    L.setTime(startMs - 1);
+    // redeem: opens exactly 30 minutes before start; closes at end
+    L.setTime(startMs - 30 * 60000 - 1);
     await expectReject(L, 'CHECKIN_CLOSED', 'RedeemTicket', t3, INS);
-    L.setTime(startMs);
+    L.setTime(startMs - 30 * 60000);
     assert.equal((await L.submit('RedeemTicket', t3, INS)).status, 'VALID');
     L.setTime(endMs - 1);
     assert.equal((await L.submit('RedeemTicket', t4, INS)).status, 'VALID');

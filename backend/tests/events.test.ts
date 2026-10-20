@@ -68,6 +68,13 @@ class FakeLedger implements LedgerReadService {
   counts = new Map<string, TicketCounts>();
   tickets = new Map<string, Ticket>();
 
+  async hasClaimedTicket(eventId: string, winnerId: string): Promise<boolean> {
+    return [...this.tickets.values()].some(
+      (ticket) =>
+        ticket.eventId === eventId && ticket.originalWinnerId === winnerId,
+    );
+  }
+
   async getTicketCounts(eventId: string): Promise<TicketCounts> {
     return this.counts.get(eventId) ?? { issuedCount: 0, redeemedCount: 0 };
   }
@@ -207,7 +214,16 @@ const insertEvent = (database: DatabaseConnection, fixture: EventFixture) => {
 const login = async (app: TestContext["app"], account: string) => {
   const response = await request(app)
     .post("/api/v1/auth/demo-login")
-    .send({ account });
+    .send({
+      account,
+      password: "123456",
+      role:
+        account === "morgan" || account.startsWith("organizer")
+          ? "ORGANIZER"
+          : account === "taylor"
+            ? "INSPECTOR"
+            : "STUDENT",
+    });
   expect(response.status).toBe(200);
   return response.body.data.token as string;
 };
@@ -246,7 +262,7 @@ describe("event and registration API", () => {
     });
 
     expect((await request(context.app).get("/api/v1/events")).status).toBe(401);
-    const token = await login(context.app, "student1");
+    const token = await login(context.app, "alex");
     const page = await request(context.app)
       .get("/api/v1/events?page=1&pageSize=2")
       .set("Authorization", `Bearer ${token}`);
@@ -289,7 +305,7 @@ describe("event and registration API", () => {
       id: eventIds.third,
       organizerId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
     });
-    const organizer = await login(context.app, "organizer1");
+    const organizer = await login(context.app, "morgan");
 
     const response = await request(context.app)
       .get("/api/v1/me/events?page=1&pageSize=1")
@@ -301,7 +317,7 @@ describe("event and registration API", () => {
       "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     );
 
-    const student = await login(context.app, "student1");
+    const student = await login(context.app, "alex");
     const forbidden = await request(context.app)
       .get("/api/v1/me/events")
       .set("Authorization", `Bearer ${student}`);
@@ -311,7 +327,7 @@ describe("event and registration API", () => {
   it("returns student-specific detail fields and hides them from other roles", async () => {
     const context = createContext();
     insertEvent(context.database, { id: eventIds.first });
-    const student = await login(context.app, "student1");
+    const student = await login(context.app, "alex");
 
     const before = await request(context.app)
       .get(`/api/v1/events/${eventIds.first}`)
@@ -335,7 +351,7 @@ describe("event and registration API", () => {
       .set("Authorization", `Bearer ${student}`);
     expect(after.body.data.myRegistration.id).toBe(registration.body.data.id);
 
-    const organizer = await login(context.app, "organizer1");
+    const organizer = await login(context.app, "morgan");
     const organizerDetail = await request(context.app)
       .get(`/api/v1/events/${eventIds.first}`)
       .set("Authorization", `Bearer ${organizer}`);
@@ -364,8 +380,8 @@ describe("event and registration API", () => {
       id: eventIds.drawing,
       status: "DRAWING",
     });
-    const student = await login(context.app, "student1");
-    const organizer = await login(context.app, "organizer1");
+    const student = await login(context.app, "alex");
+    const organizer = await login(context.app, "morgan");
 
     const first = await request(context.app)
       .post(`/api/v1/events/${eventIds.first}/registrations`)
@@ -399,7 +415,7 @@ describe("event and registration API", () => {
   it("allows only one result from concurrent duplicate registration requests", async () => {
     const context = createContext();
     insertEvent(context.database, { id: eventIds.first });
-    const token = await login(context.app, "student1");
+    const token = await login(context.app, "alex");
 
     const responses = await Promise.all([
       request(context.app)
@@ -439,7 +455,7 @@ describe("event and registration API", () => {
       }
     });
     fill();
-    const student = await login(context.app, "student1");
+    const student = await login(context.app, "alex");
 
     const response = await request(context.app)
       .post(`/api/v1/events/${eventIds.full}/registrations`)
@@ -468,7 +484,7 @@ describe("event and registration API", () => {
       status: "REGISTERED",
       createdAt: "2026-09-28T02:00:00.000Z",
     });
-    const student = await login(context.app, "student1");
+    const student = await login(context.app, "alex");
 
     const response = await request(context.app)
       .get("/api/v1/me/registrations?page=1&pageSize=1")
@@ -481,7 +497,7 @@ describe("event and registration API", () => {
       event: { id: eventIds.second },
     });
 
-    const organizer = await login(context.app, "organizer1");
+    const organizer = await login(context.app, "morgan");
     const forbidden = await request(context.app)
       .get("/api/v1/me/registrations")
       .set("Authorization", `Bearer ${organizer}`);
@@ -495,7 +511,7 @@ describe("event and registration API", () => {
       status: "DRAWN",
       drawWinnersHash: "a".repeat(64),
     });
-    const token = await login(context.app, "student1");
+    const token = await login(context.app, "alex");
 
     const response = await request(context.app)
       .get(`/api/v1/events/${eventIds.drawn}`)
@@ -530,7 +546,7 @@ describe("event and registration API", () => {
       `11111111-1111-4111-8111-111111111111:${eventIds.drawn}`,
       ticket,
     );
-    const token = await login(context.app, "student1");
+    const token = await login(context.app, "alex");
 
     const response = await request(context.app)
       .get(`/api/v1/events/${eventIds.drawn}`)

@@ -20,8 +20,8 @@ const insertFixtureUsers = (database: DatabaseConnection) => {
   const insert = database.prepare(
     "INSERT INTO users (id, account, display_name, role) VALUES (?, ?, ?, ?)",
   );
-  insert.run("organizer-1", "organizer1", "主办方一", "ORGANIZER");
-  insert.run("student-1", "student1", "学生一", "STUDENT");
+  insert.run("organizer-1", "morgan", "morgan", "ORGANIZER");
+  insert.run("student-1", "alex", "alex", "STUDENT");
 };
 
 const insertFixtureEvent = (database: DatabaseConnection) => {
@@ -207,6 +207,6 @@ describe("SQLite migrations", () => {
     const user = second
       .prepare("SELECT account FROM users WHERE id = ?")
       .get("student-1") as { account: string };
-    expect(user.account).toBe("student1");
+    expect(user.account).toBe("alex");
   });
 });

@@ -9,7 +9,7 @@ if (!["localhost", "127.0.0.1", "[::1]"].includes(new URL(base).hostname)) {
     "Campus demo seeding is restricted to a local development API.",
   );
 }
-const directory = new URL("../../.local/", import.meta.url);
+const directory = new URL(process.env.DEMO_STATE_DIR ?? "../../.local/", import.meta.url);
 const file = new URL("campus-demo.json", directory);
 await mkdir(directory, { recursive: true });
 let state;
@@ -37,9 +37,20 @@ async function request(path, token, body, headers = {}) {
   return result;
 }
 const login = async (account) =>
-  (await request("/auth/demo-login", undefined, { account })).data;
-const organizer = await login("organizer1");
-const student = await login("student1");
+  (
+    await request("/auth/demo-login", undefined, {
+      account,
+      password: process.env.DEMO_LOGIN_PASSWORD ?? "123456",
+      role:
+        account === "morgan"
+          ? "ORGANIZER"
+          : account === "taylor"
+            ? "INSPECTOR"
+            : "STUDENT",
+    })
+  ).data;
+const organizer = await login("morgan");
+const student = await login("alex");
 const catalog = [
   [
     "after-hours",
@@ -141,7 +152,7 @@ for (const [slug] of [...catalog].reverse()) {
   ).data;
   assert.ok(
     history.some(
-      (op) => op.type === "TICKET_CLAIMED" && /^[0-9a-f]{64}$/.test(op.txId),
+      (op) => op.type === "TICKET_CLAIMED" && (/^[0-9a-f]{64}$/.test(op.txId) || (process.env.DEMO_ALLOW_MOCK === "1" && op.txId.startsWith("mock-"))),
     ),
   );
   entry.ticketId = ticket.id;
@@ -149,5 +160,7 @@ for (const [slug] of [...catalog].reverse()) {
   console.log(`Confirmed ticket: ${entry.input.title}`);
 }
 console.log(
-  "PASS: four original campus activities and four real tickets for student1.",
+  process.env.DEMO_ALLOW_MOCK === "1"
+    ? "PASS: four campus activities and four tickets for alex (Mock allowed; not proof of on-chain execution)."
+    : "PASS: four original campus activities and four real tickets for alex.",
 );

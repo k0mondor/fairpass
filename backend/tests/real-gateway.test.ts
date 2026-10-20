@@ -1,3 +1,4 @@
+import { common } from "@hyperledger/fabric-protos";
 import { describe, expect, it, vi } from "vitest";
 import type { Contract } from "@hyperledger/fabric-gateway";
 import { loadFabricConfig } from "../src/config/fabric.js";
@@ -48,6 +49,13 @@ function setup(
       newProposal: vi.fn(() => ({ getTransactionId: () => txId, endorse })),
       evaluateTransaction,
     } as unknown as Pick<Contract, "evaluateTransaction" | "newProposal">,
+    queryBlockByTxId: vi.fn(async () => {
+      const block = new common.Block();
+      const header = new common.BlockHeader();
+      header.setNumber(8);
+      block.setHeader(header);
+      return block.serializeBinary();
+    }),
     close: vi.fn(),
   } satisfies FabricConnection;
   const gateway = new RealGatewayAdapter(
@@ -130,7 +138,7 @@ describe("Real Fabric Gateway commit boundary", () => {
     expect(ctx.submit).not.toHaveBeenCalled();
   });
 
-  it("adds configured network metadata to history without inventing block numbers", async () => {
+  it("retrieves real block numbers for history and caches immutable results", async () => {
     const ctx = setup();
     await expect(
       ctx.gateway.evaluate("GetOperationsByTicket", ["ticket"]),
@@ -139,9 +147,23 @@ describe("Real Fabric Gateway commit boundary", () => {
         ...operation,
         channelName: "mychannel",
         chaincodeName: "fairpass",
-        blockNumber: null,
+        blockNumber: 8,
       },
     ]);
+  });
+
+  it("reuses queried block numbers on subsequent history reads", async () => {
+    const ctx = setup();
+    await ctx.gateway.evaluate("GetOperationsByTicket", ["ticket"]);
+    await ctx.gateway.evaluate("GetOperationsByTicket", ["ticket"]);
+    expect(ctx.connection.queryBlockByTxId).toHaveBeenCalledExactlyOnceWith(txId);
+  });
+
+  it("fails history explicitly if the block lookup fails", async () => {
+    const ctx = setup();
+    ctx.connection.queryBlockByTxId.mockRejectedValueOnce(new Error("peer unavailable"));
+    await expect(ctx.gateway.evaluate("GetOperationsByTicket", ["ticket"]))
+      .rejects.toMatchObject({ kind: "NETWORK" });
   });
 
   it("reports confirmed writes with missing history as unknown for reconciliation", async () => {

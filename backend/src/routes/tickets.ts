@@ -53,12 +53,12 @@ export const createTicketRouter = ({
     requireRole("STUDENT"),
     async (request, response) => {
       const { ticketId } = parseInput(ticketIdParamsSchema, request.params);
-      const { toUserId } = parseInput(transferTicketBodySchema, request.body);
+      const { toAccount } = parseInput(transferTicketBodySchema, request.body);
       response.locals.ticketId = ticketId;
-      const result = await tickets.transfer(
+      const result = await tickets.transferToAccount(
         ticketId,
         request.actor!.id,
-        toUserId,
+        toAccount,
       );
       response.locals.eventId = result.ticket.eventId;
       if (result.txId) response.locals.txId = result.txId;

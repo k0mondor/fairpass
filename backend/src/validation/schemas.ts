@@ -31,22 +31,28 @@ export const operationListQuerySchema = paginationQuerySchema.extend({
 });
 
 export const eventIdParamsSchema = z.object({ eventId: uuidSchema }).strict();
-export const ticketIdParamsSchema = z.object({ ticketId: ticketIdSchema }).strict();
+export const ticketIdParamsSchema = z
+  .object({ ticketId: ticketIdSchema })
+  .strict();
 export const emptyBodySchema = z.object({}).strict();
+
+export const usernameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(50)
+  .regex(/^[A-Za-z0-9_-]+$/);
 
 export const demoLoginBodySchema = z
   .object({
-    account: z
-      .string()
-      .trim()
-      .min(1)
-      .max(50)
-      .regex(/^[A-Za-z0-9_-]+$/),
+    password: z.string().min(1).max(128),
+    role: roleSchema,
+    account: usernameSchema,
   })
   .strict();
 
 export const transferTicketBodySchema = z
-  .object({ toUserId: uuidSchema })
+  .object({ toAccount: usernameSchema })
   .strict();
 
 export const idempotencyKeySchema = uuidSchema;

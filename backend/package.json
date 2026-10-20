@@ -17,11 +17,14 @@
     "demo:prepare": "node scripts/prepare-live-demo.mjs",
     "test": "vitest run --passWithNoTests",
     "db:migrate": "tsx src/db/migrate-cli.ts",
-    "db:seed": "tsx src/db/seed-cli.ts"
+    "db:seed": "tsx src/db/seed-cli.ts",
+    "demo:interactive": "node scripts/prepare-interactive-demo.mjs",
+    "demo:mock": "npm run build && node scripts/start-mock-demo.mjs"
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.14.6",
     "@hyperledger/fabric-gateway": "^1.13.0",
+    "@hyperledger/fabric-protos": "^0.3.7",
     "better-sqlite3": "^13.0.3",
     "cors": "^2.8.6",
     "dotenv": "^18.0.4",
