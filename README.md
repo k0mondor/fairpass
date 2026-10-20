@@ -1,71 +1,100 @@
 # FairPass
 
-基于 Hyperledger Fabric 的活动票务课程项目。学生报名、抽签、领票与转让；主办方创建活动并发布抽签；检票员核销入场。包含 React 三角色界面、Express + SQLite 后端，以及 TypeScript 链码；后端支持 Mock 和真实 Fabric Gateway。
+基于 Hyperledger Fabric 的校园活动票务课程项目。覆盖创建活动、学生报名、限额抽签、中签领票、用户名转让、现场验票和链上历史查询。采用 React + TypeScript 前端、Express + SQLite 后端和 TypeScript 智能合约。
 
-## 项目结构
+## 快速开始：带预置数据的功能测试
+
+需要 Node.js 22 和 npm 10+。以下命令在 PowerShell 执行，其他系统将 `Copy-Item` 换为对应的复制命令。
+
+终端一，启动后端：
+
+```powershell
+cd backend
+npm ci
+npm run demo:mock
+```
+
+等待打印 `READY: clean Mock demo`（约两分钟）。该命令自动初始化演示账号和7个活动，包含四组展示门票及开放报名、待领票/转让、待验票三种可操作场次。
+
+终端二，从仓库根目录启动前端：
+
+```powershell
+cd frontend
+npm ci
+Copy-Item .env.example .env.local
+npm run dev -- --strictPort
+```
+
+打开 `http://127.0.0.1:5173/`。前端配置中的API默认指向 `http://127.0.0.1:3000/api/v1`；修改 `.env.local` 后需重启前端。端口被占用时先停止旧服务。若PowerShell限制npm脚本，可使用 `npm.cmd`。
+
+Mock使用内存账本，交易ID以 `mock-` 开头，不代表真实上链。每次 `npm run demo:mock` 都创建新的配套数据库与Mock账本，恢复可操作初始状态，不继承其他人的手工活动及测试操作。未设置API地址时，前端仅为界面预览。
+
+## 演示账号与操作顺序
+
+登录时选择身份，再输入用户名和密码。以下均为课程演示账号，密码统一为 `123456`。
+
+| 账号 | 身份 | 主要用途 |
+| --- | --- | --- |
+| alex | 学生 | 报名、领取门票、转让 |
+| jamie | 学生 | 接收转让、查看门票与历史 |
+| morgan | 主办方 | 创建活动、查看报名、发布抽签 |
+| taylor | 检票员 | 查询票码、复核并核销 |
+| casey | 学生 | 三人竞争两个名额的额外测试账号 |
+
+建议先用alex体验开放报名、领取与转让，jamie查看收到的票，再用taylor核销预领的验票专场门票。自行创建活动时，用当前时间安排报名截止、开始和结束；截止后由morgan发布抽签。完整步骤与预置状态见 [测试交接指南](docs/TESTING_HANDOFF.md)。
+
+- 用户名大小写不敏感地唯一，转让需手动输入另一个已存在的学生用户名。
+- 领取与转让须在开场前进行，每票最多转让一次；转让确认后立即变更归属。
+- 验票窗口为开场前30分钟至活动结束，结束时刻不包含；已核销票不能再转让或核销。
+- 页面按UTC+8显示时间，API与账本使用UTC。
+
+## 真实Fabric联调与录制
+
+安装、证书配置、WSL启动及旧链码升级见 [Fabric环境指南](docs/LOCAL_FABRIC_SETUP.md)。当前规则要求链码包含提前验票逻辑；已有网络须升级链码，不能仅重启前端。
+
+真实后端启动后，在实际运行后端的环境执行：
+
+```sh
+npm run demo:campus
+npm run demo:interactive
+```
+
+前者准备四组校园展示活动与门票，后者准备可报名、待领票和待验票场次；过期或使用后重新运行会补充可操作场次，`npm run demo:interactive -- --new` 强制新增。脚本通过API写入业务数据，不重置既有账本。另有 `npm run demo:prepare` 准备 **Pass it on.** 的已中签、未领取场次，适合现场展示领取与转让。
+
+真实交易须等待Fabric提交确认，历史记录通过QSCC查询实际区块号；报名记录保存在SQLite，不标为上链。`npm run test:e2e:real` 会创建独立测试活动并消费测试票，不能用来准备待操作门票。
+
+## 项目结构与数据边界
 
 ```text
-fairpass/
-├── frontend/                 # React + TypeScript：三角色预览与 HTTP client
-│   └── src/
-│       ├── pages/            # 学生、主办方和检票员页面
-│       ├── components/       # 票卡与动画组件
-│       └── api/client.ts     # v1 HTTP 契约的前端实现
-├── backend/                  # Express、SQLite、Mock/真实 Fabric Gateway
-├── blockchain/               # TypeScript 链码与 test-network 脚本
-├── docs/                     # 共同契约、逐接口规范、三端任务清单
-└── design/confirmed-ui/      # 已确认的界面截图与交互说明
+frontend/                  React三角色界面、登录、票卡与HTTP客户端
+backend/                   Express业务服务、SQLite、Mock/真实Gateway
+blockchain/                TypeScript智能合约、测试及部署脚本
+docs/                      架构契约、环境指南、测试交接和课程材料
+design/confirmed-ui/       界面设计参考
 ```
 
-## 数据边界
+SQLite保存账号、活动介绍、报名和抽签编排数据；Fabric保存限额、中签资格、票权、转让、核销及关键操作历史。前端仅调用后端API。
 
-- **SQLite** 保存活动介绍、报名记录、抽签名单等常规业务数据。
-- **Fabric 账本** 保存票数、领票资格、票权、转让和核销等关键状态与历史。
-- 前端只调用后端 API；后端通过 Fabric Gateway 调用链码。
+Git提交代码、配置模板、演示账号定义和数据生成脚本。数据库、Fabric账本、手工创建的 `test` 活动、已操作状态、`.env`、私钥、token与 `.local/` 运行清单均不上传；同学拉取后生成自己的初始数据。
 
-## 同学接手测试
+## 验证
 
-首次拉取请按 [测试交接指南](docs/TESTING_HANDOFF.md) 启动。`backend/` 中运行 `npm ci`、`npm run demo:mock` 即可创建隔离的干净Mock数据和账号；前端接入该API后可操作完整业务流程。真实上链演示仍按Fabric环境指南启动。
+| 目录 | 命令 |
+| --- | --- |
+| `frontend/` | `npm test`、`npm run build` |
+| `backend/` | `npm run typecheck`、`npm test` |
+| `blockchain/chaincode/` | `npm ci`、`npm test` |
+| 真实后端运行目录 | `npm run fabric:check`、`npm run test:e2e:real` |
 
-## 本地预览
+最近验证：2026-10-20，后端96项、前端23项、链码12项测试通过，前端构建通过；真实Fabric已验证票务流程、开场前核销与历史区块号。自动化测试与Mock体验不能替代录制前的真实环境走查。
 
-在 `frontend/` 运行 `npm ci`、`npm run dev`，打开 Vite 输出的地址。未设置 `VITE_API_BASE_URL` 时为**明确标注的界面预览**，操作只改变本地演示状态，不会创建真实票或链上交易。运行 `npm run build` 检查前端。接入后端时复制 `frontend/.env.example` 为 `.env.local`，填写以 `/api/v1` 结尾的 API 地址并重启 Vite。详细步骤见 [界面与启动指南](docs/UI_AND_FRONTEND_SETUP.md)。
+## 文档入口
 
-真实联调使用本机 Ubuntu-22.04 WSL 测试网络：启动与验收命令见 [后端 WSL 联调指南](backend/README.md#本机-wsl-联调)。`npm run test:e2e:real` 验证 HTTP 创建、报名、抽签、领票、转让、核销和真实 Fabric 历史；Mock 模式不能通过真实交易 ID 检查。前端预览不会创建链上门票。
+- [测试交接指南](docs/TESTING_HANDOFF.md)：从启动、账号到实际操作。
+- [Fabric环境指南](docs/LOCAL_FABRIC_SETUP.md)：安装、启动、配置与升级。
+- [共同业务与链码契约](docs/SHARED_CONTRACT.md)、[HTTP API v1](docs/API_V1.md)：实现和联调依据。
+- [前端界面说明](docs/UI_AND_FRONTEND_SETUP.md)及各模块README：开发与运行细节。
+- [项目技术报告](docs/PROJECT_TECHNICAL_REPORT.md)：项目故事、需求、架构、设计、团队分工、成果及PPT内容依据。
+- [视频录制操作清单](docs/VIDEO_RECORDING_CHECKLIST.md)：录前检查、分镜、操作、配音及证据采集。
 
-## 演示数据与 Git 提交
-
-环境版本、首次安装、需要修改的配置文件及日常启动步骤见 [本机 Fabric 环境与演示复现](docs/LOCAL_FABRIC_SETUP.md)。
-
-仓库保留界面、图片、账号初始化和演示活动准备脚本。数据库、Fabric 本地账本、`.env.local`、密钥以及 `.local/` 下的运行记录不进入 Git；现场领取、转让、核销后的状态也不会随代码提交。
-
-新环境启动后端并初始化测试账号后，在 `backend/` 运行 `npm run demo:campus` 准备四组校园活动与展示门票，再运行 `npm run demo:prepare` 准备 **Pass it on.** 的「已中签、未领取」状态，供alex现场领票并转让给jamie。脚本通过真实接口写入演示数据，不会清空已有记录。演示过后需要另一张可领取的票时，运行 `npm run demo:prepare -- --new`。
-
-本机演示使用以下 `frontend/.env.local` 配置，保存后重启前端；该文件不提交：
-
-```dotenv
-VITE_API_BASE_URL=http://127.0.0.1:3000/api/v1
-VITE_TICKET_MOTION=full
-```
-
-## 开发契约与三人分工
-
-- [共同业务与链码契约](docs/SHARED_CONTRACT.md)
-- [三种身份的界面说明与前端启动指南](docs/UI_AND_FRONTEND_SETUP.md)
-- [HTTP API v1：逐接口字段、权限和错误](docs/API_V1.md)
-- [前端任务](docs/FRONTEND_TASK.md)
-- [后端任务](docs/BACKEND_TASK.md)
-- [Fabric 任务](docs/BLOCKCHAIN_TASK.md)
-
-## 课程交付与展示材料
-
-- [项目介绍与技术报告](docs/PROJECT_TECHNICAL_REPORT.md)：实际问题、产品与架构、实现原理、成果、团队分工填写区、改进思路、PPT逐页提纲及答辩问答。
-- [视频录制操作清单](docs/VIDEO_RECORDING_CHECKLIST.md)：环境检查、活动时间安排、逐镜头操作与配音、证据采集和异常处理。
-
-- [录制前真实使用走查](docs/MANUAL_RECORDING_WALKTHROUGH.md)：按角色逐步核对实际功能，附本轮前端回归结果。
-
-材料依据当前代码编写；团队姓名、实际开发贡献、运行结果与真实截图需在提交前补齐。
-
-## 可交互的真实演示数据
-
-真实后端启动后，在WSL的 `/opt/fairpass-dev/backend` 运行 `npm run demo:interactive`，准备“开放报名体验”“领票与转让体验”“现场验票体验”三组数据。alex可报名或领取/转让，检票员可在开场前30分钟至结束期间对预领票核销。首次准备需约半分钟等待真实报名截止，核销从活动开始前30分钟起开放，核销窗口4小时。再次执行会保留历史、复用尚可操作的场次，并补充已用完或过期的场次；`npm run demo:interactive -- --new` 强制新增。记录在忽略的 `.local/interactive-demo.json`，不同场次标题带准备时间避免混淆。已领取并转出的旧票不会恢复为可领取。
+课程材料中的团队姓名、实际贡献与待补截图需由团队填写，不能用界面预览图代替真实运行证据。

@@ -89,7 +89,7 @@
 | `GET /events/:eventId/operations` | 该活动主办方 | `page,pageSize,type?` | 200 `Operation[]` 分页；`type` 只能为五种 `OperationType` 之一 |
 | `GET /tickets/:ticketId/operations` | 当前持有人、活动主办方、检票员 | `page,pageSize` | 200 `Operation[]` 分页 |
 
-只有 Fabric 已确认的 `EVENT_CREATED`、`DRAW_PUBLISHED`、`TICKET_CLAIMED`、`TICKET_TRANSFERRED`、`TICKET_REDEEMED` 可进入列表。报名为 SQLite 记录，不是链上操作。后端可以为活动创建记录补齐 `channelName` 和 `chaincodeName`；`blockNumber` 查不到时必须为 `null`。活动级记录可包含票级记录；票级记录只含这张票的领票、转让、核销。`fromUserId`/`toUserId`：转让分别记录旧/新持有人；领票的 `toUserId` 为领取人；其余按不适用填 `null`。
+只有 Fabric 已确认的 `EVENT_CREATED`、`DRAW_PUBLISHED`、`TICKET_CLAIMED`、`TICKET_TRANSFERRED`、`TICKET_REDEEMED` 可进入列表。报名为 SQLite 记录，不是链上操作。后端可以为活动创建记录补齐 `channelName` 和 `chaincodeName`；真实模式通过QSCC补全 `blockNumber`，查询失败返回503；Mock模式该字段为 `null`。活动级记录可包含票级记录；票级记录只含这张票的领票、转让、核销。`fromUserId`/`toUserId`：转让分别记录旧/新持有人；领票的 `toUserId` 为领取人；其余按不适用填 `null`。
 
 ## 7. 状态码与稳定错误码
 

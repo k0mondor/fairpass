@@ -39,4 +39,4 @@ Live event details use the latest `myRegistration` and `myTicket` response, incl
 
 Queries and demo login use a 12-second timeout; other POST requests allow up to 180 seconds for confirmation and reconciliation. A pending notice appears after 8 seconds. Network interruption and timeout leave the write result uncertain; inspect current state before retrying. Creation preserves its idempotency key while the form is unchanged. These waits do not automatically resubmit client writes.
 
-Before recording, follow [the manual walkthrough](../docs/MANUAL_RECORDING_WALKTHROUGH.md). Deployment and real acceptance remain separate from these automated frontend checks.
+Before recording, follow [the recording checklist](../docs/VIDEO_RECORDING_CHECKLIST.md). Deployment and real acceptance remain separate from these automated frontend checks.

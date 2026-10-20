@@ -9,7 +9,11 @@ FairPass 的 TypeScript + Express 后端。HTTP API 基础路径为 `/api/v1`，
 - Node.js 22；当前基准版本见 `.nvmrc`
 - npm 10+
 
-## 本地启动
+## 带预置数据的快速测试
+
+首次接手建议执行 `npm ci`、`npm run demo:mock`，等待READY后启动前端。该命令初始化账号及7个活动，每次启动创建独立数据库与内存Mock账本。完整账号与操作说明见 [测试交接指南](../docs/TESTING_HANDOFF.md)。
+
+## 常规开发启动
 
 ```powershell
 npm ci
@@ -31,6 +35,8 @@ GET /health
 
 | 命令 | 用途 |
 |---|---|
+| `npm run demo:mock` | 构建并启动干净Mock环境，自动准备账号和可操作活动 |
+| `npm run demo:interactive` | 通过运行中的API准备报名、待领票和待验票数据 |
 | `npm run dev` | 监听 TypeScript 文件并启动开发服务 |
 | `npm run build` | 编译到 `dist/` |
 | `npm start` | 运行编译后的服务 |
@@ -209,4 +215,4 @@ src/
 
 ## 可交互的真实演示数据
 
-真实后端启动后，在WSL的 `/opt/fairpass-dev/backend` 运行 `npm run demo:interactive`，准备“开放报名体验”“领票与转让体验”“现场验票体验”三组数据。alex可报名或领取/转让，检票员可对已开始活动的预领票核销。首次准备需约半分钟等待真实报名截止，核销从活动开始前30分钟起开放，核销窗口4小时。再次执行会保留历史、复用尚可操作的场次，并补充已用完或过期的场次；`npm run demo:interactive -- --new` 强制新增。记录在忽略的 `.local/interactive-demo.json`，不同场次标题带准备时间避免混淆。已领取并转出的旧票不会恢复为可领取。
+真实后端启动后，在WSL的 `/opt/fairpass-dev/backend` 运行 `npm run demo:interactive`，准备“开放报名体验”“领票与转让体验”“现场验票体验”三组数据。alex可报名或领取/转让，检票员可在开场前30分钟至结束期间核销预领票。首次准备需约半分钟等待真实报名截止，核销从活动开始前30分钟起开放，核销窗口4小时。再次执行会保留历史、复用尚可操作的场次，并补充已用完或过期的场次；`npm run demo:interactive -- --new` 强制新增。记录在忽略的 `.local/interactive-demo.json`，不同场次标题带准备时间避免混淆。已领取并转出的旧票不会恢复为可领取。

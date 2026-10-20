@@ -1,7 +1,7 @@
 # FairPass 区块链层（Hyperledger Fabric）
 
 基于官方 `fabric-samples/test-network`，TypeScript 链码，通道 `mychannel`，链码名 `fairpass`。
-接口契约见 `docs/SHARED_CONTRACT.md`、`docs/BLOCKCHAIN_TASK.md`。
+接口契约见 [共同契约](../docs/SHARED_CONTRACT.md)与[HTTP API](../docs/API_V1.md)。
 
 ## 1. 运行环境
 

@@ -62,7 +62,7 @@ interface Operation {
 
 `Event` 的计数字段由后端汇总：报名数来自 SQLite；中签数来自已确认抽签名单；发行、核销数在当前实现中通过Gateway读取链上查询结果。不得以未经确认的本地写入增加链上计数。`Ticket.id` 在链码领取时确定为 `SHA256("ticket:" + eventId + ":" + originalWinnerId)` 的 64 位小写十六进制字符串，确保重试得到同一 ID。`Operation.id` 使用 Fabric `txId`；`EVENT_CREATED` 等记录可在后端查询时融合展示，且须标记链上交易 ID。
 
-**链上展示边界**：`Operation` 列表只显示已确认的 Fabric 交易（建活动、发布抽签、领票、转让、核销）。报名保存在 SQLite，页面标为“平台记录”，不能标为“上链”。`channelName` 和 `chaincodeName` 从 Gateway 配置补充；`blockNumber` 只有在后端确实查询到区块号时填值，否则为 `null`，前端显示“未提供”，不得编造。交易成功意味着 Fabric 提交确认，不能仅以提交请求已发出作为“上链成功”。
+**链上展示边界**：`Operation` 列表只显示已确认的 Fabric 交易（建活动、发布抽签、领票、转让、核销）。报名保存在 SQLite，页面标为“平台记录”，不能标为“上链”。`channelName` 和 `chaincodeName` 从 Gateway 配置补充；真实模式的 `blockNumber` 通过提交确认或QSCC查询填入，查询失败返回不可用；Mock为 `null`，前端显示“未提供”，不得编造。交易成功意味着 Fabric 提交确认，不能仅以提交请求已发出作为“上链成功”。
 
 ## 4. HTTP 约定
 
