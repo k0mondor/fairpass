@@ -1,19 +1,17 @@
-# FairPass Backend
+# FairPass 后端
 
-FairPass 的 TypeScript + Express 后端。HTTP API 基础路径为 `/api/v1`，业务契约见仓库 `docs/API_V1.md` 与 `docs/SHARED_CONTRACT.md`。
+Node.js 22、Express和TypeScript实现票务API，SQLite保存业务数据，Fabric Gateway执行合约交易与账本查询。API前缀为 `/api/v1`，健康检查为 `/health`。
 
-当前包含 v1 HTTP 业务面和真实 Fabric Gateway adapter：SQLite、Demo 认证、活动与报名、幂等创建、可恢复抽签、领票、票权查询、转让、核销，以及活动级和票级已确认操作历史。Mock 模式支持页面开发，真实上链验收使用 real 模式。
+## 演示启动
 
-## 环境要求
+```powershell
+npm ci
+npm run demo:mock
+```
 
-- Node.js 22；当前基准版本见 `.nvmrc`
-- npm 10+
+自动构建服务、初始化演示账号，并准备校园活动和可操作门票。默认端口3000，每次启动使用新的SQLite数据库和内存Mock账本。
 
-## 带预置数据的快速测试
-
-首次接手建议执行 `npm ci`、`npm run demo:mock`，等待READY后启动前端。该命令初始化账号及7个活动，每次启动创建独立数据库与内存Mock账本。完整账号与操作说明见 [测试交接指南](../docs/TESTING_HANDOFF.md)。
-
-## 常规开发启动
+## 配置启动
 
 ```powershell
 npm ci
@@ -23,196 +21,25 @@ npm run db:seed
 npm run dev
 ```
 
-默认监听 `http://127.0.0.1:3000`。健康检查位于 API 契约之外：
+配置文件设置数据库路径、认证密钥、CORS及Fabric连接。`DEMO_TOKEN_SECRET` 至少32字符。真实Fabric环境使用 `FABRIC_GATEWAY_MODE=real` 并填写TLS证书和服务身份路径，具体见 [环境指南](../docs/LOCAL_FABRIC_SETUP.md)。
 
-```text
-GET /health
-```
-
-业务路由统一挂载在 `/api/v1`。JSON 请求体最大为 100 KB。浏览器 CORS 只响应 `CORS_ORIGIN` 中配置的精确 origin；需要允许多个本地前端时使用英文逗号分隔。
-
-## 脚本
+## 命令
 
 | 命令 | 用途 |
-|---|---|
-| `npm run demo:mock` | 构建并启动干净Mock环境，自动准备账号和可操作活动 |
-| `npm run demo:interactive` | 通过运行中的API准备报名、待领票和待验票数据 |
-| `npm run dev` | 监听 TypeScript 文件并启动开发服务 |
-| `npm run build` | 编译到 `dist/` |
-| `npm start` | 运行编译后的服务 |
-| `npm run typecheck` | 执行 TypeScript 类型检查 |
-| `npm test` | 运行测试 |
-| `npm run db:migrate` | 对 `SQLITE_PATH` 指向的数据库执行待应用迁移 |
-| `npm run db:seed` | 执行迁移并幂等写入演示账号 |
+| --- | --- |
+| `npm run build` | 编译后端 |
+| `npm start` | 启动编译后的服务 |
+| `npm run typecheck` | 类型检查 |
+| `npm run db:seed` | 初始化演示账号 |
+| `npm run demo:campus` | 准备校园展示活动与门票 |
+| `npm run demo:interactive` | 准备报名、待领票和待验票场次 |
+| `npm run demo:prepare` | 准备Pass it on.领票转让场次 |
+| `npm run fabric:check` | 检查Fabric读写连接 |
 
-## 数据库
+## 代码结构
 
-SQLite 文件位置由 `SQLITE_PATH` 配置，默认示例为 `./data/fairpass.sqlite`。迁移会自动创建父目录，并在每个连接上启用：
+`routes/` 定义接口，`middleware/` 校验身份与权限，`services/` 编排业务及异常恢复，`db/` 提供迁移与仓储，`fabric/` 提供真实与Mock适配器。
 
-- foreign keys
-- 5 秒 busy timeout
-- WAL journal mode
-- NORMAL synchronous mode
+创建、抽签和票务交易等待Fabric提交确认，结果不确定时查询实际状态进行对账。历史通过QSCC补充真实区块号。账号定义保存在 `src/db/seed.ts`，完整账号见 [项目说明](../README.md)。
 
-初始迁移包含 `users`、`events`、`registrations`、`draw_winners`、`draw_attempts`、`idempotency_keys`，以及迁移历史表 `schema_migrations`。时间字段统一保存为 UTC ISO 8601 文本；输入格式将在服务校验层强制检查。
-
-迁移按版本执行并记录，同一个数据库重复运行 `npm run db:migrate` 不会重复建表或清空已有数据。若已经记录的迁移版本未知或名称被改动，启动迁移会直接失败，避免静默使用不一致的 schema。
-
-## 演示账号与认证
-
-`npm run db:seed` 可重复执行，固定提供以下账号：
-
-| account | 显示名 | 角色 |
-|---|---|---|
-| `alex` | alex | STUDENT |
-| `jamie` | jamie | STUDENT |
-| `casey` | casey | STUDENT |
-| `morgan` | morgan | ORGANIZER |
-| `taylor` | taylor | INSPECTOR |
-
-登录使用 `POST /api/v1/auth/demo-login`，请求体为 `{ "account": "alex", "password": "123456", "role": "STUDENT" }`。三个字段都必须提供，账号名、密码或身份不匹配统一返回401。密码为本地课程账号共享口令，默认`123456`，可配置`DEMO_LOGIN_PASSWORD`；服务器使用scrypt派生与恒定时间比较，不接受旧的仅account免密请求。原用户UUID保持不变。成功后把 token 放入 `Authorization: Bearer <token>`，可通过 `GET /api/v1/auth/me` 查询当前身份。
-
-token 使用 `DEMO_TOKEN_SECRET` 进行 HS256 签名，并校验 issuer、audience 和过期时间。服务启动时要求 secret 至少 32 个字符；有效期由正整数 `DEMO_TOKEN_TTL_SECONDS` 配置。角色来源于已签名 token，服务端同时检查对应用户仍存在且角色一致。
-
-## 请求校验
-
-共享校验模块覆盖 UUID、64 位小写十六进制票 ID、角色与状态枚举、带时区 ISO 时间、分页、活动创建、空请求体、转让目标和幂等 key。已知参数非法或请求形状错误统一返回 `400 VALIDATION_ERROR`；分页默认 `page=1&pageSize=20`，`pageSize` 最大为 100。
-
-## 活动、报名、抽签与票务接口
-
-当前提供以下需要 Bearer token 的接口：
-
-| 方法与路径 | 权限 | 说明 |
-|---|---|---|
-| `GET /api/v1/events` | 已登录 | 全部活动，支持 `page`、`pageSize`、`status` |
-| `POST /api/v1/events` | 主办方 | 使用 UUID `Idempotency-Key` 创建活动，确认后返回 201，重放返回 200 |
-| `GET /api/v1/me/events` | 主办方 | 只分页当前主办方的活动，`total` 也只统计本人 |
-| `GET /api/v1/events/:eventId` | 已登录 | 活动详情；学生附加 `myRegistration` 和 `myTicket` |
-| `POST /api/v1/events/:eventId/registrations` | 学生 | OPEN 且截止前报名，请求体为 `{}` |
-| `GET /api/v1/me/registrations` | 学生 | 本人报名列表，每项附完整活动 |
-| `POST /api/v1/events/:eventId/draw` | 本活动主办方 | 截止后、开始前发布唯一抽签结果，请求体为 `{}` |
-| `GET /api/v1/events/:eventId/draw` | 本活动主办方 | 查询抽签状态；确认前隐藏名单与哈希 |
-| `POST /api/v1/events/:eventId/tickets/claim` | 中签学生 | 活动开始前领取确定性 ticketId 的门票，确认后返回 201 |
-| `GET /api/v1/me/tickets` | 学生 | 通过 Gateway owner 索引分页查询当前持有票，每项附完整活动 |
-| `GET /api/v1/tickets/:ticketId` | 当前持有人、本活动主办方、检票员 | 查询门票详情并附完整活动 |
-| `POST /api/v1/tickets/:ticketId/transfer` | 当前持有人 | 活动开始前将 ACTIVE 门票转给另一个学生，最多一次 |
-| `POST /api/v1/tickets/:ticketId/redeem` | 检票员 | 活动开始前30分钟至结束期间核销，返回更新后的票和本次已确认交易的 Operation |
-| `GET /api/v1/events/:eventId/operations` | 本活动主办方 | 已确认活动历史，支持分页和 `type` 筛选 |
-| `GET /api/v1/tickets/:ticketId/operations` | 当前持有人、本活动主办方、检票员 | 已确认票务历史，支持分页 |
-
-活动列表按 `createdAt DESC, id DESC` 稳定排序。到达 `endAt` 后，读取时状态自动呈现为 `FINISHED`，筛选和分页 total 使用相同的有效状态。
-
-报名写入使用 SQLite `BEGIN IMMEDIATE` 事务，并由 `(event_id,user_id)` 唯一约束兜底。重复报名返回 `ALREADY_REGISTERED`，单活动达到 1000 人返回 `SOLD_OUT`，截止时刻及之后或非 OPEN 状态返回 `REGISTRATION_CLOSED`。报名只写 SQLite，不生成链上 Operation。
-
-创建活动会先在 SQLite `BEGIN IMMEDIATE` 事务中把全局唯一的 `Idempotency-Key` 固定到 actorId、规范化请求 SHA-256 和 eventId，再调用 Gateway `CreateEvent`。只有 commit 确认，或通过 `GetEvent` 对账确认链上字段一致后，才会在同一 SQLite 事务中保存活动并把幂等记录标为 `CONFIRMED`。同 key、actor 和请求重放返回原活动与 200；不同 actor 或 payload 复用 key 返回 `409 IDEMPOTENCY_CONFLICT`。
-
-提交结果未知时会保留 `PENDING` 记录并按固定 eventId 查询链上状态。链上存在且字段一致时完成本地收尾；明确不存在时只允许使用原 eventId 重试一次；查询仍不可用时返回 `503 FABRIC_UNAVAILABLE`。并发的相同创建意图会合并到同一进行中任务，不会生成第二个 eventId。Mock 模式下这些语义可用于恢复测试，但交易仍不是真实上链。
-
-抽签在 SQLite `BEGIN IMMEDIATE` 事务中锁定报名快照，使用 Node.js 密码学安全随机数选择 `min(capacity, registrationCount)` 名中签者，再把排序后的规范 JSON、SHA-256 哈希和 `DRAWING` 状态一并持久化。Gateway 只接收这份已保存名单；确认后才写入 `draw_winners`、更新 `WON/LOST` 和把活动置为 `DRAWN`。并发请求不会生成第二份名单。
-
-`PublishDraw` 结果未知或服务重试时，后端先用 `GetEvent` 对账：同一哈希会完成本地收尾，明确未发布时最多以原名单安全重试一次，哈希不一致则把尝试标记为 `CONFLICT` 并返回 503。`OPEN`/`DRAWING` 的查询始终返回 `winnersHash: null` 和空名单，只有本活动主办方能在确认后查看中签用户。
-
-领票前会核对 SQLite 中已经确认的中签资格、活动开始时间及确定性 ticketId 是否已存在，再调用 Gateway `ClaimTicket`。只有 commit 确认，或提交结果未知后通过 `GetTicket` 对账确认该票存在且身份字段一致，才返回 201；明确未提交时最多以同一 eventId 和 winnerId 安全重试一次。未中签、重复领取和活动已开始分别返回 `NOT_WINNER`、`ALREADY_CLAIMED` 和 `CLAIM_CLOSED`。
-
-本人门票列表只读取 Gateway 的当前 owner 索引，在服务端按 `claimedAt DESC, id DESC` 排序和分页，因此转出后不会继续出现在原持有人列表。票详情仅允许当前持有人、活动所属主办方和检票员读取。列表和详情都附加本地完整活动及链上确认计数；Gateway 不可用或链上票与本地活动不一致时返回 503，不使用本地票权缓存兜底。
-
-转让前会校验请求人是当前持有人、接收人是已存在的其他学生、票未核销且未转让过，并要求 `now < startAt`。链上确认后 owner 索引立即生效。提交结果未知时读取同一张票对账；状态仍与提交前完全一致时最多重试一次，状态冲突或无法确认时返回 503。
-
-核销只允许检票员在 `startAt - 30分钟 <= now < endAt` 执行。正常成功直接使用本次 `submitAndConfirm` 返回的 Operation，并校验其 `id`、`txId`、票、活动和检票员均对应本次交易；commit unknown 时只按异常携带的精确 txId 查询并核对操作记录，不会用“最新一条”猜测成功交易。响应中的票附完整活动及更新后的链上核销计数。
-
-活动操作历史仅允许本活动主办方查看，可按五种 `OperationType` 筛选；票操作历史沿用票详情权限，只返回该票的领票、转让和核销。两类接口均从 Gateway 读取、按 `occurredAt DESC, txId DESC` 稳定排序后服务端分页，并校验交易 ID、资源归属、channel、chaincode 和区块号格式。Gateway 不可用或返回跨资源、重复、未确认形状的数据时返回 503；`blockNumber` 未提供时保持 `null`，不会伪造。
-
-链上抽签尚未发布的活动，其 `winnerCount`、`issuedCount`、`redeemedCount` 为 0 且 `myTicket` 为 null。已确认抽签的活动通过统一 Gateway 读取链上计数和当前 owner；Gateway 不可用、链上记录缺失或提交结果仍不确定时返回 `503 FABRIC_UNAVAILABLE`，不会用本地零值或未确认投影伪装链上状态。
-
-## Fabric Gateway Adapter
-
-业务服务只依赖 `GatewayAdapter` 的 `evaluate(method,args)` 与 `submitAndConfirm(method,args)`，不直接依赖 Fabric SDK。提交成功结果包含业务 JSON、txId、确认状态、可用时的区块号，以及本次交易对应的 Operation。内部错误区分业务拒绝、网络、超时、背书、commit 失败和 commit 未知；链码 `CODE:message` 会映射到 API v1 稳定错误码，未知原文不会返回浏览器。
-
-开发环境默认使用 `FABRIC_GATEWAY_MODE=mock`。Mock 实现活动、抽签资格、票、owner 索引和 Operation，支持以下交易与查询：
-
-- `CreateEvent`、`PublishDraw`、`ClaimTicket`、`TransferTicket`、`RedeemTicket`
-- `GetEvent`、`GetTicket`、`GetTicketsByOwner`、`GetOperationsByEvent`、`GetOperationsByTicket`
-
-Mock 交易 ID 始终以 `mock-` 开头，`blockNumber` 始终为 `null`，服务启动时也会打印模拟模式警告。Mock 状态只保存在当前进程内，重启后清空；它用于服务和页面开发，不能作为真实上链验收证据。
-
-测试可通过 `MockGatewayAdapter.queueFault(method, fault)` 注入网络、超时、背书、commit、业务冲突和 `COMMIT_UNKNOWN`。除 `COMMIT_UNKNOWN` 外，故障在状态写入前发生；`COMMIT_UNKNOWN` 会先应用状态再抛错，用于验证调用方通过查询对账，不能据异常直接判定交易失败。
-
-设置 `FABRIC_GATEWAY_MODE=real` 时，adapter 使用 `@hyperledger/fabric-gateway` 和 gRPC 连接 peer，读取配置中的 TLS 根证书、客户端证书和私钥。写入经过背书、提交和 commit 状态确认；只有 VALID 才返回成功，并按精确 txId 读取同一交易的 Operation。操作历史补充 channelName、chaincodeName，并通过 QSCC `GetBlockByTxID` 查询真实区块号，缓存最多5000条已确认交易的区块号；查询失败返回503，不伪造区块号。提交或确认阶段失联保留 txId，以便业务层对账。缺失配置或连接失败返回 `503 FABRIC_UNAVAILABLE`。
-
-### 本机 WSL 联调
-
-本机环境使用 Ubuntu-22.04 的独立 Docker 引擎，Fabric 2.5.16、官方 fabric-samples v2.4.0 测试网络（commit `0fe4d091d2549607af61bb7c7e1f3b5fa356dc70`）、Node 22.19.0。工具和网络位于 `/opt/fairpass-dev`。Windows 的 `.wslconfig` 开启 mirrored 网络和 autoProxy；Docker 的代理配置位于 WSL `/etc/systemd/system/docker.service.d/fairpass-proxy.conf`。完整安装步骤、实际配置值和文件清单见 [本机 Fabric 环境与演示复现](../docs/LOCAL_FABRIC_SETUP.md)。
-
-在仓库根目录的 PowerShell 启动：
-
-```powershell
-wsl.exe -d Ubuntu-22.04 -u root -- service docker start
-wsl.exe -d Ubuntu-22.04 -u root -- bash /mnt/c/Users/32349/fairpass/backend/scripts/start-real-wsl.sh
-```
-
-启动脚本创建缺失的网络和链码，自动同步后端源文件到 `/opt/fairpass-dev/backend`，安装 Linux 依赖、生成本地认证密钥和证书路径配置、幂等写入演示账号，然后监听 `http://127.0.0.1:3000`。SQLite 和 `.env` 留在 WSL 运行目录，重启服务会复用。不要在 Windows 和 WSL 共用同一个 node_modules；better-sqlite3 有平台原生依赖。
-
-另开 PowerShell，在 `frontend` 运行 `npm run dev`。本机 `.env.local` 已设置 `VITE_API_BASE_URL=http://127.0.0.1:3000/api/v1`。账号为上表中的五个演示账号。
-
-联通检查会创建一个仅存在于链上的检查活动，验证真实 commit 和同 ID 查询：
-
-```bash
-cd /opt/fairpass-dev/backend
-export PATH=/opt/fairpass-dev/node-v22.19.0-linux-x64/bin:$PATH
-npm run fabric:check
-npm run test:e2e:real
-```
-
-`test:e2e:real` 经 HTTP 创建完整活动，覆盖三学生报名、幂等重放、抽签、领票、票权转让、核销、历史和计数，并检查拒绝路径。必须出现真实 64 位 txId；Mock 模式不能通过。测试等待真实报名截止和活动开始，不修改时钟。检查活动和验收活动会保留用于核对。
-
-停止后端使用 Ctrl+C。暂停网络可在 WSL 执行：
-
-```bash
-cd /opt/fairpass-dev/fabric-samples/test-network
-DOCKER_SOCK=/var/run/docker.sock docker compose -f compose/compose-test-net.yaml -f compose/docker/docker-compose-test-net.yaml stop
-```
-
-重新运行启动脚本会恢复已有容器，复用账本和 SQLite。不要执行 `network.sh down`，它会删除账本；已有 SQLite 无法自动重建被清空的账本。链码变更后需按区块链 README 升级版本和 sequence；`.fairpass-deployed` 标记只用于初次启动，不负责升级。
-
-## 目录
-
-```text
-src/
-├── config/      # HTTP、认证与 Fabric 环境配置解析
-├── db/          # SQLite 连接、迁移和后续仓储
-├── errors/      # 稳定 API 错误码与状态映射
-├── fabric/      # Mock/真实 Fabric Gateway adapter
-├── middleware/  # requestId、日志、认证和错误中间件
-├── routes/      # `/api/v1` HTTP 路由
-├── services/    # 认证、token、业务服务和恢复流程
-├── types/       # 共享后端类型及 Express 类型扩展
-├── utils/       # 统一响应等通用工具
-├── validation/  # 共享 Zod schema 与安全错误转换
-├── app.ts       # Express 应用与中间件顺序
-└── server.ts    # 进程入口
-```
-
-## HTTP 基础行为
-
-- 允许的方法：`GET`、`POST`、`OPTIONS`
-- 允许的浏览器请求头：`Authorization`、`Content-Type`、`Idempotency-Key`
-- CORS 预检请求不要求 token
-- 每次请求生成 UUID requestId，并通过 `X-Request-Id` 返回
-- 单体成功响应使用 `{ data }`
-- 分页响应使用 `{ data, page, pageSize, total }`
-- 错误响应使用 `{ error: { code, message, requestId } }`
-- 未知路由返回 `404 NOT_FOUND`
-- 无效 JSON 或超出大小限制的 JSON 返回 `400 VALIDATION_ERROR`
-- 未处理异常返回 `500 INTERNAL_ERROR`，不暴露堆栈或内部消息
-
-每次请求完成后输出一行 JSON 日志，包括 requestId、方法、路径、状态码和耗时；可用时增加 actorId、eventId、ticketId、txId 和 errorCode。日志不读取请求头、token、请求体或查询字符串。
-
-## 配置与敏感信息
-
-复制 `.env.example` 为本地 `.env` 后再填写实际配置。不得提交 token secret、Fabric 私钥、客户端证书、真实数据库或本机环境文件。
-
-`FABRIC_GATEWAY_MODE` 仅接受 `mock` 或 `real`。`mock` 只用于前期页面和服务联调；最终验收必须切换到真实 Fabric Gateway，模拟交易不能标记为真实上链。channel、chaincode、MSP、peer endpoint、TLS 根证书、客户端证书与私钥路径均从环境变量读取，任何凭据都不得提交到仓库。
-
-## 可交互的真实演示数据
-
-真实后端启动后，在WSL的 `/opt/fairpass-dev/backend` 运行 `npm run demo:interactive`，准备“开放报名体验”“领票与转让体验”“现场验票体验”三组数据。alex可报名或领取/转让，检票员可在开场前30分钟至结束期间核销预领票。首次准备需约半分钟等待真实报名截止，核销从活动开始前30分钟起开放，核销窗口4小时。再次执行会保留历史、复用尚可操作的场次，并补充已用完或过期的场次；`npm run demo:interactive -- --new` 强制新增。记录在忽略的 `.local/interactive-demo.json`，不同场次标题带准备时间避免混淆。已领取并转出的旧票不会恢复为可领取。
+[HTTP接口](../docs/API_V1.md) · [业务契约](../docs/SHARED_CONTRACT.md)

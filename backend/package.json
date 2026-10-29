@@ -12,10 +12,8 @@
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "fabric:check": "tsx src/fabric/check-cli.ts",
-    "test:e2e:real": "node scripts/e2e-real.mjs",
     "demo:campus": "node scripts/seed-campus-demo.mjs",
     "demo:prepare": "node scripts/prepare-live-demo.mjs",
-    "test": "vitest run --passWithNoTests",
     "db:migrate": "tsx src/db/migrate-cli.ts",
     "db:seed": "tsx src/db/seed-cli.ts",
     "demo:interactive": "node scripts/prepare-interactive-demo.mjs",
@@ -37,10 +35,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^22.20.4",
-    "@types/supertest": "^7.2.1",
-    "supertest": "^7.3.0",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2",
-    "vitest": "^5.0.2"
+    "typescript": "^7.0.2"
   }
 }

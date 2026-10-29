@@ -11,8 +11,6 @@
 | `backend/src/fabric/create-gateway-adapter.ts` | 按 `FABRIC_GATEWAY_MODE` 选择真实或 Mock 实现 |
 | `backend/src/fabric/types.ts`、`backend/src/server.ts` | 连接关闭接口及服务退出时释放连接 |
 | `backend/src/fabric/check-cli.ts` | 真实 Fabric 写入与读取检查 |
-| `backend/tests/real-gateway.test.ts` | Gateway 成功、失败和确认结果未知等测试 |
-| `backend/scripts/e2e-real.mjs` | 经 HTTP 验证创建、报名、抽签、领取、转让、核销与链上历史 |
 | `backend/scripts/start-real-wsl.sh` | 同步源代码到 Linux、准备网络及首次部署、生成本地配置、启动后端 |
 | `backend/scripts/seed-campus-demo.mjs`、`prepare-live-demo.mjs` | 可重建的四组展示活动，以及供现场领取、转让的 Pass it on. |
 | `backend/package.json`、`package-lock.json` | Gateway/gRPC 依赖及运行命令 |
@@ -187,10 +185,9 @@ npm run demo:prepare
 
 ```bash
 npm run fabric:check
-npm run test:e2e:real
 ```
 
-这两个检查会创建各自的测试记录；后者在报名截止后完成抽签、领取、转让，并在开场前验票窗口核销测试票，不用于准备现场待操作门票。测试结果与干净数据操作步骤见 [测试交接指南](TESTING_HANDOFF.md)。
+`fabric:check`用于检查Fabric读写连接。完整演示按 [项目说明](../README.md) 和 [录制指南](VIDEO_RECORDING_CHECKLIST.md) 完成。
 
 Git 保存代码、图片、配置模板和演示准备逻辑；不保存 `.env`、私钥、SQLite、Docker 账本卷、`.local/` 清单或现场领取后的状态。停止后端用 Ctrl+C。暂停网络按 [后端说明](../backend/README.md#本机-wsl-联调) 使用 Compose `stop`；保留数据时不要执行 `network.sh down`。链码升级参见 [区块链说明](../blockchain/README.md#2-启动部署停止)。
 
